@@ -453,9 +453,9 @@
     const viewport = readerViewportSize();
     lastReaderSize = viewport;
     rendition = currentBook.renderTo(mount, {
-      width: viewport.width,
-      height: viewport.height,
-      manager: 'default',
+      width: '100%',
+      height: '100%',
+      manager: settings.flow === 'paginated' ? 'continuous' : 'default',
       spread: 'none',
       flow: settings.flow
     });
@@ -816,12 +816,6 @@
 
       if (direction === 'next') await rendition.next();
       else await rendition.prev();
-
-      if (settings.flow === 'paginated') {
-        await nextPaint();
-        const anchor = currentLocation()?.start?.cfi;
-        if (anchor) await rendition.display(anchor);
-      }
 
       if (canAnimate) {
         stage.classList.remove('page-turn-out');
