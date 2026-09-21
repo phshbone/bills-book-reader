@@ -411,12 +411,19 @@
       if (!target) continue;
       anchor.dataset.bbrLinkInstalled = 'true';
       anchor.dataset.bbrHref = rawHref;
-      // Neutralize browser navigation so WebKit cannot escape the EPUB iframe to GitHub Pages.
-      anchor.setAttribute('href', '#');
-      anchor.addEventListener('click', (event) => {
+      // Remove native navigation entirely. WebKit can otherwise resolve even "#" against
+      // the iframe's EPUB path and request it from GitHub Pages.
+      anchor.removeAttribute('href');
+      anchor.setAttribute('role', 'link');
+      anchor.setAttribute('tabindex', '0');
+      const activate = (event) => {
         event.preventDefault();
         event.stopImmediatePropagation();
         rendition?.display(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
+      };
+      anchor.addEventListener('click', activate, true);
+      anchor.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') activate(event);
       }, true);
     }
   }
