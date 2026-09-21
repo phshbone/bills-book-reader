@@ -203,6 +203,8 @@ test('book can be closed and reopened after page turns', async ({ page }) => {
   await card.locator('.book-open').click();
 
   await expect(page.locator('#readerView')).toBeVisible();
+  await expect(page.locator('#busyOverlay')).toBeHidden();
+  await expect(page.locator('#readerChapterTitle')).not.toHaveText('Opening…');
   await expect(page.locator('#toast')).toBeHidden();
   await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
   const visibleTextCount = await page.frameLocator('#viewer iframe').locator('[data-test-paragraph]').evaluateAll((nodes) =>
