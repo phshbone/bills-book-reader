@@ -400,6 +400,40 @@
     return normalized.join('/') + hash;
   }
 
+  function findSpineTarget(target) {
+    if (!currentBook?.spine || !target) return null;
+    const hashIndex = target.indexOf('#');
+    const path = (hashIndex >= 0 ? target.slice(0, hashIndex) : target).replace(/^\.\//, '');
+    const hash = hashIndex >= 0 ? target.slice(hashIndex) : '';
+
+    let section = currentBook.spine.get(path);
+    if (!section) {
+      const decoded = (() => { try { return decodeURI(path); } catch { return path; } })();
+      section = currentBook.spine.spineItems?.find((item) => {
+        const href = (item?.href || '').replace(/^\.\//, '');
+        const hrefDecoded = (() => { try { return decodeURI(href); } catch { return href; } })();
+        return href === path || hrefDecoded === decoded || path.endsWith('/' + href) || href.endsWith('/' + path);
+      }) || null;
+    }
+    return section ? { section, hash } : null;
+  }
+
+  async function displayBookTarget(target) {
+    const match = findSpineTarget(target);
+    if (!match) return rendition?.display(target);
+    await rendition.display(match.section.index);
+    if (match.hash) {
+      const id = decodeURIComponent(match.hash.slice(1));
+      for (const contents of rendition?.getContents?.() || []) {
+        const node = contents.document?.getElementById(id) || contents.document?.querySelector?.(`[name="${CSS.escape(id)}"]`);
+        if (node) {
+          node.scrollIntoView({ block: 'start' });
+          break;
+        }
+      }
+    }
+  }
+
   function installBookLinkHandler(contents, sectionHref) {
     const doc = contents?.document;
     if (!doc) return;
@@ -408,7 +442,7 @@
       event?.preventDefault?.();
       event?.stopPropagation?.();
       event?.stopImmediatePropagation?.();
-      rendition?.display(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
+      displayBookTarget(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
     };
 
     for (const anchor of doc.querySelectorAll('a[href]')) {
