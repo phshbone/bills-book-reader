@@ -28,7 +28,7 @@ async function makeEpub() {
       <spine><itemref idref="c1"/><itemref idref="c2"/></spine>
     </package>`);
   zip.file('OEBPS/nav.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>TOC</title></head><body><nav epub:type="toc"><ol><li><a href="chapter1.xhtml">First Light</a></li><li><a href="chapter2.xhtml">Second Chapter</a></li></ol></nav></body></html>`);
-  zip.file('OEBPS/chapter1.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>First Light</title></head><body><h1>First Light</h1><p>This is the first smoke test paragraph. The quick reader remembers this book locally.</p><p>Searchable phrase: copper lantern.</p>${longParagraphs}</body></html>`);
+  zip.file('OEBPS/chapter1.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>First Light</title></head><body><h1>First Light</h1><p>This is the first smoke test paragraph. The quick reader remembers this book locally.</p><p>Searchable phrase: copper lantern.</p><p><a href="chapter2.xhtml">Jump to Second Chapter</a></p>${longParagraphs}</body></html>`);
   zip.file('OEBPS/chapter2.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Second Chapter</title></head><body><h1>Second Chapter</h1><p>This is the second chapter used to verify page navigation.</p></body></html>`);
   return zip.generateAsync({ type: 'nodebuffer', mimeType: 'application/epub+zip' });
 }
@@ -74,9 +74,14 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await page.getByRole('button', { name: 'Close contents' }).click();
 
   await page.getByRole('button', { name: 'Reading appearance' }).click();
+  await page.getByRole('button', { name: /Night/ }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-app-theme', 'night');
+  await expect.poll(() => page.frameLocator('#viewer iframe').locator('body').evaluate((body) => getComputedStyle(body).backgroundColor)).toBe('rgb(27, 30, 28)');
   await page.getByRole('button', { name: /Paper/ }).click();
   await expect(page.locator('body')).toHaveAttribute('data-app-theme', 'paper');
+  await expect.poll(() => page.frameLocator('#viewer iframe').locator('body').evaluate((body) => getComputedStyle(body).backgroundColor)).toBe('rgb(251, 250, 246)');
   await page.getByRole('button', { name: 'Close appearance' }).click();
+  await expect(page.frameLocator('#viewer iframe').getByText('First Light')).toBeVisible();
 
   await page.getByRole('button', { name: 'Add bookmark' }).click();
   await expect(page.getByText('Bookmark added')).toBeVisible();
@@ -89,6 +94,24 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(page.locator('#searchStatus')).toContainText('result');
   await expect(page.locator('#searchResults')).toContainText('copper lantern');
+});
+
+test('internal EPUB links stay inside the reader', async ({ page, browserName }) => {
+  await importFixture(page);
+  const appUrl = page.url();
+  const chapterLink = page.frameLocator('#viewer iframe').first().getByRole('link', { name: 'Jump to Second Chapter' });
+  await expect(chapterLink).toHaveAttribute('data-bbr-link-installed', 'true');
+
+  if (browserName === 'webkit') {
+    const box = await chapterLink.boundingBox();
+    expect(box).not.toBeNull();
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  } else {
+    await chapterLink.click();
+  }
+
+  await expect(page.locator('#readerChapterTitle')).toHaveText('Second Chapter');
+  expect(page.url()).toBe(appUrl);
 });
 
 

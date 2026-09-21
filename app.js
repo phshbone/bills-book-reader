@@ -14,6 +14,13 @@
     flow: 'paginated'
   };
 
+  const THEME_PALETTE = {
+    eink: { text: '#20211e', background: '#eeece4', link: '#40584f' },
+    paper: { text: '#1e211e', background: '#fbfaf6', link: '#405c51' },
+    sepia: { text: '#3d3327', background: '#efe1c5', link: '#6a5b3f' },
+    night: { text: '#e7e4db', background: '#1b1e1c', link: '#b5c9be' }
+  };
+
   const THEME_RULES = {
     eink: {
       body: { color: '#20211e !important', background: '#eeece4 !important' },
@@ -364,6 +371,104 @@
     return mount;
   }
 
+  function applyThemeToContents(contents) {
+    const doc = contents?.document;
+    if (!doc?.documentElement || !doc.body) return;
+    const palette = THEME_PALETTE[settings.theme] || THEME_PALETTE.eink;
+    doc.documentElement.style.setProperty('background-color', palette.background, 'important');
+    doc.documentElement.style.setProperty('color', palette.text, 'important');
+    doc.body.style.setProperty('background-color', palette.background, 'important');
+    doc.body.style.setProperty('color', palette.text, 'important');
+    for (const anchor of doc.querySelectorAll('a')) {
+      anchor.style.setProperty('color', palette.link, 'important');
+    }
+  }
+
+  function resolveBookHref(rawHref, sectionHref) {
+    if (!rawHref || /^(?:https?:|mailto:|tel:|data:|javascript:)/i.test(rawHref)) return null;
+    if (rawHref.startsWith('#')) return `${(sectionHref || '').split('#')[0]}${rawHref}`;
+    const baseParts = (sectionHref || '').split('#')[0].split('/');
+    baseParts.pop();
+    const parts = [...baseParts, ...rawHref.split('#')[0].split('/')];
+    const normalized = [];
+    for (const part of parts) {
+      if (!part || part === '.') continue;
+      if (part === '..') normalized.pop();
+      else normalized.push(part);
+    }
+    const hash = rawHref.includes('#') ? `#${rawHref.split('#').slice(1).join('#')}` : '';
+    return normalized.join('/') + hash;
+  }
+
+  function findSpineTarget(target) {
+    if (!currentBook?.spine || !target) return null;
+    const hashIndex = target.indexOf('#');
+    const path = (hashIndex >= 0 ? target.slice(0, hashIndex) : target).replace(/^\.\//, '');
+    const hash = hashIndex >= 0 ? target.slice(hashIndex) : '';
+
+    let section = currentBook.spine.get(path);
+    if (!section) {
+      const decoded = (() => { try { return decodeURI(path); } catch { return path; } })();
+      section = currentBook.spine.spineItems?.find((item) => {
+        const href = (item?.href || '').replace(/^\.\//, '');
+        const hrefDecoded = (() => { try { return decodeURI(href); } catch { return href; } })();
+        return href === path || hrefDecoded === decoded || path.endsWith('/' + href) || href.endsWith('/' + path);
+      }) || null;
+    }
+    return section ? { section, hash } : null;
+  }
+
+  async function displayBookTarget(target) {
+    const match = findSpineTarget(target);
+    if (!match) return rendition?.display(target);
+    const canonicalTarget = `${match.section.href}${match.hash || ''}`;
+    return rendition.display(canonicalTarget);
+  }
+
+  function installBookLinkHandler(contents, sectionHref) {
+    const doc = contents?.document;
+    if (!doc) return;
+
+    const activateTarget = (event, target) => {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      event?.stopImmediatePropagation?.();
+      displayBookTarget(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
+    };
+
+    for (const anchor of doc.querySelectorAll('a[href]')) {
+      if (anchor.dataset.bbrLinkInstalled === 'true') continue;
+      const rawHref = anchor.getAttribute('href') || '';
+      if (/^(?:https?:|mailto:|tel:|data:|javascript:)/i.test(rawHref)) continue;
+      const target = resolveBookHref(rawHref, sectionHref);
+      if (!target) continue;
+
+      anchor.dataset.bbrLinkInstalled = 'true';
+      anchor.dataset.bbrHref = rawHref;
+      anchor.removeAttribute('href');
+      anchor.setAttribute('role', 'link');
+      anchor.setAttribute('tabindex', '0');
+
+      let lastTouchActivation = 0;
+      anchor.addEventListener('touchend', (event) => {
+        lastTouchActivation = Date.now();
+        activateTarget(event, target);
+      }, { capture: true, passive: false });
+      anchor.addEventListener('click', (event) => {
+        if (Date.now() - lastTouchActivation < 750) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation?.();
+          return;
+        }
+        activateTarget(event, target);
+      }, true);
+      anchor.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') activateTarget(event, target);
+      }, true);
+    }
+  }
+
   function installContentPagingGuards(contents) {
     const doc = contents?.document;
     if (!doc?.documentElement || !doc.body) return;
@@ -468,6 +573,8 @@
     rendition.on('relocated', onRelocated);
     rendition.on('rendered', (section, view) => {
       installContentPagingGuards(view?.contents);
+      installBookLinkHandler(view?.contents, section?.href);
+      applyThemeToContents(view?.contents);
       const navItem = findNavForHref(section?.href);
       if (navItem) els.readerChapterTitle.textContent = navItem.label.trim();
     });
@@ -636,6 +743,7 @@
       rendition.themes.override('padding-left', '0px', true);
       rendition.themes.override('padding-right', '0px', true);
       configureReaderMount();
+      for (const contents of rendition.getContents?.() || []) applyThemeToContents(contents);
     }
     if (persist) saveSettings();
   }
@@ -686,6 +794,7 @@
 
   function closePanels() {
     [els.tocPanel, els.searchPanel, els.appearancePanel, els.bookmarkPanel].forEach((p) => { p.hidden = true; });
+    if (rendition && !els.readerView.hidden) scheduleReaderViewportSync(true);
   }
 
   async function searchBook(query) {
@@ -866,9 +975,21 @@
         attachHighlight(mark);
       });
     });
-    els.fontFamily.addEventListener('change', () => { settings.fontFamily = els.fontFamily.value; applyReaderSettings(); });
-    els.fontSize.addEventListener('input', () => { settings.fontSize = Number(els.fontSize.value); applyReaderSettings(); });
-    els.lineHeight.addEventListener('input', () => { settings.lineHeight = Number(els.lineHeight.value); applyReaderSettings(); });
+    els.fontFamily.addEventListener('change', () => {
+      settings.fontFamily = els.fontFamily.value;
+      applyReaderSettings();
+      scheduleReaderViewportSync(true);
+    });
+    els.fontSize.addEventListener('input', () => {
+      settings.fontSize = Number(els.fontSize.value);
+      applyReaderSettings();
+      scheduleReaderViewportSync(true);
+    });
+    els.lineHeight.addEventListener('input', () => {
+      settings.lineHeight = Number(els.lineHeight.value);
+      applyReaderSettings();
+      scheduleReaderViewportSync(true);
+    });
     els.readerMargin.addEventListener('input', async () => {
       settings.margin = Number(els.readerMargin.value);
       applyReaderSettings();
