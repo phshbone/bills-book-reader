@@ -158,16 +158,10 @@ test('paginated mode locks content to one viewport and serializes page turns', a
     const doc = body.ownerDocument;
     const style = getComputedStyle(body);
     return {
-      bodyOverflowX: style.overflowX,
-      rootOverflowX: getComputedStyle(doc.documentElement).overflowX,
       bodyTouchAction: style.touchAction,
-      rootTouchAction: getComputedStyle(doc.documentElement).touchAction,
-      paddingLeft: style.paddingLeft,
-      paddingRight: style.paddingRight
+      rootTouchAction: getComputedStyle(doc.documentElement).touchAction
     };
   });
-  expect(contentGuards.bodyOverflowX).toBe('hidden');
-  expect(contentGuards.rootOverflowX).toBe('hidden');
   expect([contentGuards.bodyTouchAction, contentGuards.rootTouchAction]).toContain('pan-y');
 
   const expectedGutter = await page.evaluate(() => Math.round((window.visualViewport?.width || window.innerWidth) * 0.05));
@@ -188,4 +182,36 @@ test('paginated mode locks content to one viewport and serializes page turns', a
   const after = await page.locator('#locationText').textContent();
   const afterPage = Number(after.split('/')[0].trim());
   expect(afterPage).toBe(beforePage + 1);
+
+  const visibleTextCount = await page.frameLocator('#viewer iframe').locator('[data-test-paragraph]').evaluateAll((nodes) =>
+    nodes.filter((node) => {
+      const r = node.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight;
+    }).length
+  );
+  expect(visibleTextCount).toBeGreaterThan(0);
+});
+
+test('book can be closed and reopened after page turns', async ({ page }) => {
+  await importFixture(page);
+  await page.getByRole('button', { name: 'Next page' }).click();
+  await page.getByRole('button', { name: 'Next page' }).click();
+  await page.getByRole('button', { name: 'Back to library' }).click();
+
+  const card = page.getByTestId('library-grid').locator('[data-book-title="Smoke Test Book"]');
+  await expect(card).toBeVisible();
+  await card.locator('.book-open').click();
+
+  await expect(page.locator('#readerView')).toBeVisible();
+  await expect(page.locator('#busyOverlay')).toBeHidden();
+  await expect(page.locator('#readerChapterTitle')).not.toHaveText('Opening…');
+  await expect(page.locator('#toast')).toBeHidden();
+  await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
+  const visibleTextCount = await page.frameLocator('#viewer iframe').locator('[data-test-paragraph]').evaluateAll((nodes) =>
+    nodes.filter((node) => {
+      const r = node.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight;
+    }).length
+  );
+  expect(visibleTextCount).toBeGreaterThan(0);
 });

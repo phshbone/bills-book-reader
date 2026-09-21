@@ -320,7 +320,8 @@
       }
       currentBook = ePub(data.slice(0));
       await currentBook.ready;
-      await setupRendition(currentRecord.cfi || undefined);
+      await setupRendition();
+      await restoreReadingPosition(currentRecord);
       renderToc(await currentBook.loaded.navigation);
       renderMarks();
       generateLocations();
@@ -370,7 +371,9 @@
     const root = doc.documentElement;
     const body = doc.body;
     [root, body].forEach((node) => {
-      node.style.setProperty('overflow-x', 'hidden', 'important');
+      // Do not hide EPUB.js' internal horizontal column overflow here.
+      // Pagination works by translating those columns inside the clipped outer mount.
+      node.style.removeProperty('overflow-x');
       node.style.setProperty('overscroll-behavior-x', 'none', 'important');
     });
 
@@ -445,7 +448,7 @@
     readerResizeTimer = setTimeout(() => syncReaderViewport(force), force ? 80 : 160);
   }
 
-  async function setupRendition(target) {
+  async function setupRendition() {
     els.viewer.innerHTML = '';
     const mount = configureReaderMount();
     const viewport = readerViewportSize();
@@ -482,8 +485,65 @@
     });
 
     for (const mark of currentRecord.highlights || []) attachHighlight(mark);
-    await rendition.display(target);
     els.viewer.focus({ preventScroll: true });
+  }
+
+  async function nextPaint() {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }
+
+  function hasVisibleRenditionContent() {
+    try {
+      for (const contents of rendition?.getContents?.() || []) {
+        const doc = contents?.document;
+        const win = doc?.defaultView;
+        if (!doc?.body || !win) continue;
+        const width = win.innerWidth;
+        const height = win.innerHeight;
+        const nodes = doc.body.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,pre,img,svg,figure,table,div,span');
+        for (const node of nodes) {
+          const rect = node.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0 || rect.right <= 0 || rect.left >= width || rect.bottom <= 0 || rect.top >= height) continue;
+          const tag = node.tagName?.toLowerCase();
+          if (tag === 'img' || tag === 'svg' || tag === 'figure' || (node.textContent || '').trim()) return true;
+        }
+      }
+    } catch {}
+    return false;
+  }
+
+  async function restoreReadingPosition(record) {
+    const href = record?.sectionHref || null;
+    const page = Math.max(1, Number(record?.sectionPage) || 1);
+
+    if (href) {
+      try {
+        await rendition.display(href);
+        for (let i = 1; i < page; i++) await rendition.next();
+        await nextPaint();
+        if (hasVisibleRenditionContent()) return;
+      } catch (error) {
+        console.warn('Section/page restore failed; trying alternate saved position.', error);
+      }
+    }
+
+    if (record?.cfi) {
+      try {
+        await rendition.display(record.cfi);
+        await nextPaint();
+        if (hasVisibleRenditionContent()) return;
+      } catch (error) {
+        console.warn('CFI restore failed; reopening from the start.', error);
+      }
+    }
+
+    record.cfi = null;
+    record.sectionHref = null;
+    record.sectionPage = 1;
+    record.progress = 0;
+    await idbPut(record);
+    await rendition.display();
+    await nextPaint();
   }
 
   async function destroyReader() {
@@ -511,6 +571,8 @@
   async function onRelocated(location) {
     if (!currentRecord || !location?.start?.cfi) return;
     currentRecord.cfi = location.start.cfi;
+    currentRecord.sectionHref = location.start.href || currentRecord.sectionHref || null;
+    currentRecord.sectionPage = Number(location.start.displayed?.page) || 1;
     let percentage = Number.isFinite(location.start.percentage) ? location.start.percentage : null;
     if ((percentage == null || Number.isNaN(percentage)) && locationsReady) {
       try { percentage = currentBook.locations.percentageFromCfi(location.start.cfi); } catch {}
@@ -584,10 +646,16 @@
   async function recreateRendition() {
     if (!currentBook || !currentRecord) return;
     const loc = currentLocation();
-    const target = loc?.start?.cfi || currentRecord.cfi;
+    const snapshot = {
+      ...currentRecord,
+      cfi: loc?.start?.cfi || currentRecord.cfi,
+      sectionHref: loc?.start?.href || currentRecord.sectionHref,
+      sectionPage: Number(loc?.start?.displayed?.page) || currentRecord.sectionPage || 1
+    };
     try { rendition?.destroy(); } catch {}
     rendition = null;
-    await setupRendition(target || undefined);
+    await setupRendition();
+    await restoreReadingPosition(snapshot);
   }
 
   function flattenToc(items, level = 0, out = []) {
