@@ -436,7 +436,6 @@
     lastReaderSize = size;
     try {
       rendition.resize(size.width, size.height);
-      if (typeof rendition.spread === 'function') rendition.spread('none');
       if (settings.flow === 'paginated' && target) await rendition.display(target);
     } catch (error) {
       console.warn('Reader viewport sync skipped', error);
@@ -461,7 +460,6 @@
       flow: settings.flow
     });
 
-    if (typeof rendition.spread === 'function') rendition.spread('none');
     rendition.hooks?.content?.register?.(installContentPagingGuards);
 
     Object.entries(THEME_RULES).forEach(([name, rules]) => rendition.themes.register(name, rules));
@@ -637,7 +635,6 @@
       rendition.themes.override('line-height', String(settings.lineHeight), true);
       rendition.themes.override('padding-left', '0px', true);
       rendition.themes.override('padding-right', '0px', true);
-      rendition.themes.override('max-width', '100%', true);
       configureReaderMount();
     }
     if (persist) saveSettings();
@@ -819,6 +816,12 @@
 
       if (direction === 'next') await rendition.next();
       else await rendition.prev();
+
+      if (settings.flow === 'paginated') {
+        await nextPaint();
+        const anchor = currentLocation()?.start?.cfi;
+        if (anchor) await rendition.display(anchor);
+      }
 
       if (canAnimate) {
         stage.classList.remove('page-turn-out');
