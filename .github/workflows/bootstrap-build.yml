@@ -1,0 +1,35 @@
+name: Assemble Reader Source
+
+on:
+  push:
+    branches: [build/epub-reader-v1]
+    paths:
+      - ".github/workflows/bootstrap-build.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: build/epub-reader-v1
+      - name: Rebuild source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .build-parts/part-* | base64 --decode > /tmp/reader-source.tgz
+          tar -xzf /tmp/reader-source.tgz
+          rm -rf .build-parts
+          rm -f .github/workflows/bootstrap-build.yml
+      - name: Commit assembled source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "build: assemble EPUB reader source"
+          git push origin HEAD:build/epub-reader-v1
