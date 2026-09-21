@@ -3,6 +3,9 @@ const JSZip = require('jszip');
 
 async function makeEpub() {
   const zip = new JSZip();
+  const longParagraphs = Array.from({ length: 70 }, (_, i) =>
+    `<p data-test-paragraph="${i + 1}">Pagination test paragraph ${i + 1}. A stable reader should keep this text locked to one viewport page while moving between columns.</p>`
+  ).join('');
   zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
   zip.file('META-INF/container.xml', `<?xml version="1.0"?>
     <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -25,7 +28,7 @@ async function makeEpub() {
       <spine><itemref idref="c1"/><itemref idref="c2"/></spine>
     </package>`);
   zip.file('OEBPS/nav.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>TOC</title></head><body><nav epub:type="toc"><ol><li><a href="chapter1.xhtml">First Light</a></li><li><a href="chapter2.xhtml">Second Chapter</a></li></ol></nav></body></html>`);
-  zip.file('OEBPS/chapter1.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>First Light</title></head><body><h1>First Light</h1><p>This is the first smoke test paragraph. The quick reader remembers this book locally.</p><p>Searchable phrase: copper lantern.</p></body></html>`);
+  zip.file('OEBPS/chapter1.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>First Light</title></head><body><h1>First Light</h1><p>This is the first smoke test paragraph. The quick reader remembers this book locally.</p><p>Searchable phrase: copper lantern.</p>${longParagraphs}</body></html>`);
   zip.file('OEBPS/chapter2.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Second Chapter</title></head><body><h1>Second Chapter</h1><p>This is the second chapter used to verify page navigation.</p></body></html>`);
   return zip.generateAsync({ type: 'nodebuffer', mimeType: 'application/epub+zip' });
 }
@@ -119,4 +122,45 @@ test('library shell fits the active viewport without horizontal overflow', async
   }));
   expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.viewport + 1);
   await expect(page.getByText('Bring your own books.')).toBeVisible();
+});
+
+
+test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {
+  await importFixture(page);
+  await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
+
+  const shellGeometry = await page.evaluate(() => {
+    const viewer = document.querySelector('#viewer').getBoundingClientRect();
+    const iframe = document.querySelector('#viewer iframe').getBoundingClientRect();
+    return { viewerWidth: viewer.width, iframeWidth: iframe.width };
+  });
+  expect(Math.abs(shellGeometry.viewerWidth - shellGeometry.iframeWidth)).toBeLessThanOrEqual(2);
+
+  const contentGuards = await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
+    const doc = body.ownerDocument;
+    return {
+      bodyOverflowX: getComputedStyle(body).overflowX,
+      rootOverflowX: getComputedStyle(doc.documentElement).overflowX,
+      bodyTouchAction: getComputedStyle(body).touchAction,
+      rootTouchAction: getComputedStyle(doc.documentElement).touchAction
+    };
+  });
+  expect(contentGuards.bodyOverflowX).toBe('hidden');
+  expect(contentGuards.rootOverflowX).toBe('hidden');
+  expect([contentGuards.bodyTouchAction, contentGuards.rootTouchAction]).toContain('pan-y');
+
+  const before = await page.locator('#locationText').textContent();
+  const beforePage = Number(before.split('/')[0].trim());
+
+  await page.locator('#nextPage').evaluate((button) => {
+    button.click();
+    button.click();
+  });
+
+  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
+  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
+
+  const after = await page.locator('#locationText').textContent();
+  const afterPage = Number(after.split('/')[0].trim());
+  expect(afterPage).toBe(beforePage + 1);
 });
