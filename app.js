@@ -402,38 +402,44 @@
 
   function installBookLinkHandler(contents, sectionHref) {
     const doc = contents?.document;
-    const win = contents?.window;
+    const win = contents?.window || doc?.defaultView;
     if (!doc || !win) return;
 
-    for (const anchor of doc.querySelectorAll('a[href], a[data-bbr-href]')) {
-      if (anchor.dataset.bbrLinkInstalled === 'true') continue;
-      const rawHref = anchor.getAttribute('href') || anchor.dataset.bbrHref || '';
-      if (/^(?:https?:|mailto:|tel:|data:|javascript:)/i.test(rawHref)) continue;
-      const target = resolveBookHref(rawHref, sectionHref);
-      if (!target) continue;
-      anchor.dataset.bbrLinkInstalled = 'true';
-      anchor.dataset.bbrHref = rawHref;
-      anchor.dataset.bbrTarget = target;
-      // Keep an anchor for accessibility, but make its native action inert. Navigation is
-      // intercepted at the iframe window in capture phase before WebKit can resolve the URL.
-      anchor.setAttribute('href', 'javascript:void(0)');
-    }
+    const linkTargets = new Map();
+    let linkIndex = 0;
 
-    if (win.__bbrLinkCaptureInstalled) return;
-    win.__bbrLinkCaptureInstalled = true;
-
-    const activate = (event) => {
-      const anchor = event.target?.closest?.('a[data-bbr-target]');
-      if (!anchor) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      const target = anchor.dataset.bbrTarget;
+    const activateTarget = (target) => {
       if (!target) return;
       rendition?.display(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
     };
 
-    win.addEventListener('click', activate, true);
-    win.addEventListener('touchend', activate, { capture: true, passive: false });
+    for (const anchor of doc.querySelectorAll('a[href]')) {
+      if (anchor.dataset.bbrLinkInstalled === 'true') continue;
+      const rawHref = anchor.getAttribute('href') || '';
+      if (/^(?:https?:|mailto:|tel:|data:|javascript:)/i.test(rawHref)) continue;
+      const target = resolveBookHref(rawHref, sectionHref);
+      if (!target) continue;
+
+      const token = `bbr-link-${linkIndex++}`;
+      linkTargets.set(token, target);
+      anchor.dataset.bbrLinkInstalled = 'true';
+      anchor.dataset.bbrHref = rawHref;
+      anchor.setAttribute('href', `#${token}`);
+
+      anchor.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        activateTarget(target);
+      }, true);
+    }
+
+    win.addEventListener('hashchange', () => {
+      const token = win.location.hash.replace(/^#/, '');
+      const target = linkTargets.get(token);
+      if (!target) return;
+      try { win.history.replaceState(null, '', win.location.pathname + win.location.search); } catch {}
+      activateTarget(target);
+    });
   }
 
   function installContentPagingGuards(contents) {
