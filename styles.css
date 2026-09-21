@@ -107,7 +107,7 @@ body[data-app-theme="paper"] { --shell:#ece9e1; --panel:#ffffff; --paper:#fbfaf6
 .reader-title-wrap span { color:var(--muted); font-size:11px; margin-top:2px; }
 .reader-stage { min-height:0; position:relative; display:grid; place-items:stretch; overflow:hidden; perspective:1600px; touch-action:pan-y; }
 .viewer { min-width:0; min-height:0; width:100%; height:100%; background:var(--paper); outline:0; transform:translateZ(0); backface-visibility:hidden; will-change:transform,opacity; }
-.viewer iframe { border:0 !important; width:100% !important; height:100% !important; overflow:hidden !important; }
+.viewer iframe { border:0 !important; overflow:hidden !important; }
 .reader-stage::after { content:''; position:absolute; inset:0; z-index:20; pointer-events:none; opacity:0; background:linear-gradient(90deg, transparent 0%, rgba(35,35,30,.04) 38%, rgba(35,35,30,.18) 50%, rgba(255,255,255,.12) 61%, transparent 100%); }
 .reader-stage.page-turn-next.page-turn-out .viewer { transform-origin:left center; animation:pageFoldOutNext 105ms ease-in both; }
 .reader-stage.page-turn-next.page-turn-in .viewer { transform-origin:right center; animation:pageFoldInNext 175ms cubic-bezier(.22,.72,.2,1) both; }
