@@ -1,0 +1,71 @@
+name: Live Smoke Test
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Deploy Pages"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      LIVE_SMOKE_MODE: deployed
+      LIVE_BASE_URL: https://phshbone.github.io/bills-book-reader/
+      BASE_URL: https://phshbone.github.io/bills-book-reader/
+      TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Check out deployed revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TARGET_SHA }}
+      - name: Report target
+        run: |
+          echo "Mode: Deployed"
+          echo "URL: $LIVE_BASE_URL"
+          echo "Revision: $TARGET_SHA"
+      - name: Wait for exact deployed build
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(index.html app.js styles.css sw.js)
+          for attempt in {1..18}; do
+            matched=1
+            for file in "${files[@]}"; do
+              remote="/tmp/${file//\//_}.remote"
+              if ! curl -fsSL -H 'Cache-Control: no-cache' "${LIVE_BASE_URL}${file}?rev=${TARGET_SHA}&attempt=${attempt}" -o "$remote"; then
+                matched=0
+                break
+              fi
+              if ! cmp -s "$file" "$remote"; then
+                matched=0
+                break
+              fi
+            done
+            if [ "$matched" -eq 1 ]; then
+              echo "Deployment identity PASS: $TARGET_SHA"
+              exit 0
+            fi
+            echo "Deployment not current yet (attempt $attempt/18); waiting 10s"
+            sleep 10
+          done
+          echo "Deployment identity FAIL: public files do not match $TARGET_SHA"
+          exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:smoke
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-smoke-evidence
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore

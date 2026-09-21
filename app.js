@@ -1,0 +1,701 @@
+(() => {
+  'use strict';
+
+  const DB_NAME = 'bills-book-reader';
+  const DB_VERSION = 1;
+  const BOOK_STORE = 'books';
+  const SETTINGS_KEY = 'bbr-settings-v1';
+  const DEFAULT_SETTINGS = {
+    theme: 'eink',
+    fontFamily: "Georgia, 'Times New Roman', serif",
+    fontSize: 100,
+    lineHeight: 1.6,
+    margin: 5,
+    flow: 'paginated'
+  };
+
+  const THEME_RULES = {
+    eink: {
+      body: { color: '#20211e !important', background: '#eeece4 !important' },
+      'a': { color: '#40584f !important' },
+      '::selection': { background: 'rgba(100, 125, 114, .25)' }
+    },
+    paper: {
+      body: { color: '#1e211e !important', background: '#fbfaf6 !important' },
+      'a': { color: '#405c51 !important' },
+      '::selection': { background: 'rgba(95, 124, 113, .22)' }
+    },
+    sepia: {
+      body: { color: '#3d3327 !important', background: '#efe1c5 !important' },
+      'a': { color: '#6a5b3f !important' },
+      '::selection': { background: 'rgba(122, 107, 79, .25)' }
+    },
+    night: {
+      body: { color: '#e7e4db !important', background: '#1b1e1c !important' },
+      'a': { color: '#b5c9be !important' },
+      '::selection': { background: 'rgba(154, 178, 166, .35)' }
+    }
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    libraryHeader: $('libraryHeader'), libraryView: $('libraryView'), libraryGrid: $('libraryGrid'), emptyLibrary: $('emptyLibrary'),
+    epubInput: $('epubInput'), librarySearch: $('librarySearch'), librarySort: $('librarySort'), installButton: $('installButton'),
+    readerView: $('readerView'), viewer: $('viewer'), backToLibrary: $('backToLibrary'), readerBookTitle: $('readerBookTitle'), readerChapterTitle: $('readerChapterTitle'),
+    prevPage: $('prevPage'), nextPage: $('nextPage'), bookmarkButton: $('bookmarkButton'), tocButton: $('tocButton'), searchButton: $('searchButton'), appearanceButton: $('appearanceButton'),
+    marksButton: $('marksButton'), tocPanel: $('tocPanel'), tocList: $('tocList'), searchPanel: $('searchPanel'), appearancePanel: $('appearancePanel'), bookmarkPanel: $('bookmarkPanel'),
+    bookSearchForm: $('bookSearchForm'), bookSearchInput: $('bookSearchInput'), searchStatus: $('searchStatus'), searchResults: $('searchResults'),
+    bookmarkList: $('bookmarkList'), highlightList: $('highlightList'), progressText: $('progressText'), progressSlider: $('progressSlider'), locationText: $('locationText'),
+    fontFamily: $('fontFamily'), fontSize: $('fontSize'), fontSizeValue: $('fontSizeValue'), lineHeight: $('lineHeight'), lineHeightValue: $('lineHeightValue'),
+    readerMargin: $('readerMargin'), readerMarginValue: $('readerMarginValue'), flowSelect: $('flowSelect'), themeGrid: $('themeGrid'),
+    selectionToolbar: $('selectionToolbar'), highlightSelection: $('highlightSelection'), clearSelection: $('clearSelection'),
+    toast: $('toast'), busyOverlay: $('busyOverlay'), busyText: $('busyText'), readerStage: $('readerStage')
+  };
+
+  let dbPromise;
+  let settings = loadSettings();
+  let library = [];
+  let currentRecord = null;
+  let currentBook = null;
+  let rendition = null;
+  let pendingSelection = null;
+  let saveTimer = null;
+  let toastTimer = null;
+  let installPrompt = null;
+  let pointerStart = null;
+  let locationsReady = false;
+
+  function openDb() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(BOOK_STORE)) {
+          const store = db.createObjectStore(BOOK_STORE, { keyPath: 'id' });
+          store.createIndex('lastOpened', 'lastOpened');
+          store.createIndex('title', 'title');
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return dbPromise;
+  }
+
+  async function idbGetAll() {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(BOOK_STORE, 'readonly').objectStore(BOOK_STORE).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function idbGet(id) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const req = db.transaction(BOOK_STORE, 'readonly').objectStore(BOOK_STORE).get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function idbPut(record) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(BOOK_STORE, 'readwrite');
+      tx.objectStore(BOOK_STORE).put(record);
+      tx.oncomplete = () => resolve(record);
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  async function idbDelete(id) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(BOOK_STORE, 'readwrite');
+      tx.objectStore(BOOK_STORE).delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  function loadSettings() {
+    try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; }
+    catch { return { ...DEFAULT_SETTINGS }; }
+  }
+
+  function saveSettings() {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  }
+
+  function showBusy(message) {
+    els.busyText.textContent = message;
+    els.busyOverlay.hidden = false;
+  }
+
+  function hideBusy() { els.busyOverlay.hidden = true; }
+
+  function toast(message, ms = 2200) {
+    clearTimeout(toastTimer);
+    els.toast.textContent = message;
+    els.toast.hidden = false;
+    toastTimer = setTimeout(() => { els.toast.hidden = true; }, ms);
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>'"]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[ch]));
+  }
+
+  async function shaId(arrayBuffer) {
+    if (crypto?.subtle) {
+      const hash = await crypto.subtle.digest('SHA-256', arrayBuffer);
+      return Array.from(new Uint8Array(hash)).slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+    return `book-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
+  async function coverToDataUrl(book) {
+    try {
+      const url = await book.coverUrl();
+      if (!url) return null;
+      const blob = await (await fetch(url)).blob();
+      return await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch { return null; }
+  }
+
+  async function importFiles(fileList) {
+    const files = Array.from(fileList || []).filter((file) => file.name.toLowerCase().endsWith('.epub') || file.type === 'application/epub+zip');
+    if (!files.length) return;
+    showBusy(files.length === 1 ? 'Adding book…' : `Adding ${files.length} books…`);
+    const imported = [];
+    try {
+      for (const file of files) {
+        const arrayBuffer = await file.arrayBuffer();
+        const id = await shaId(arrayBuffer);
+        const existing = await idbGet(id);
+        if (existing) { imported.push(existing); continue; }
+
+        let probe;
+        try {
+          probe = ePub(arrayBuffer.slice(0));
+          await probe.ready;
+          const meta = await probe.loaded.metadata;
+          const coverData = await coverToDataUrl(probe);
+          const now = Date.now();
+          const record = {
+            id,
+            title: (meta?.title || file.name.replace(/\.epub$/i, '')).trim(),
+            author: (meta?.creator || 'Unknown author').trim(),
+            fileName: file.name,
+            fileBlob: file,
+            coverData,
+            addedAt: now,
+            lastOpened: 0,
+            progress: 0,
+            cfi: null,
+            bookmarks: [],
+            highlights: []
+          };
+          await idbPut(record);
+          imported.push(record);
+        } catch (error) {
+          console.error('EPUB import failed', file.name, error);
+          toast(`Could not open ${file.name}`, 3800);
+        } finally {
+          try { probe?.destroy(); } catch {}
+        }
+      }
+      await loadLibrary();
+      if (imported.length === 1) await openBook(imported[0].id);
+      else if (imported.length > 1) toast(`${imported.length} books added`);
+    } finally {
+      els.epubInput.value = '';
+      hideBusy();
+    }
+  }
+
+  async function loadLibrary() {
+    library = await idbGetAll();
+    renderLibrary();
+  }
+
+  function renderLibrary() {
+    const query = els.librarySearch.value.trim().toLowerCase();
+    const sorted = [...library].filter((book) => !query || `${book.title} ${book.author}`.toLowerCase().includes(query));
+    sorted.sort((a, b) => {
+      if (els.librarySort.value === 'title') return a.title.localeCompare(b.title);
+      if (els.librarySort.value === 'author') return a.author.localeCompare(b.author);
+      return (b.lastOpened || b.addedAt || 0) - (a.lastOpened || a.addedAt || 0);
+    });
+
+    els.emptyLibrary.hidden = library.length > 0;
+    els.libraryGrid.hidden = library.length === 0;
+    els.libraryGrid.innerHTML = '';
+
+    for (const book of sorted) {
+      const article = document.createElement('article');
+      article.className = 'book-card';
+      article.dataset.bookId = book.id;
+      article.dataset.bookTitle = book.title;
+      const percent = Math.max(0, Math.min(100, Math.round((book.progress || 0) * 100)));
+      article.innerHTML = `
+        <button class="book-open" type="button" aria-label="Open ${escapeHtml(book.title)}">
+          <div class="cover-wrap">
+            ${book.coverData ? `<img src="${book.coverData}" alt="">` : `<div class="cover-fallback">${escapeHtml(book.title)}</div>`}
+            <div class="book-progress" aria-hidden="true"><span style="width:${percent}%"></span></div>
+          </div>
+          <div class="book-meta"><strong>${escapeHtml(book.title)}</strong><span>${escapeHtml(book.author)}</span></div>
+        </button>
+        <div class="book-card-menu"><span>${percent ? `${percent}% read` : 'Not started'}</span><button class="remove-book" type="button" aria-label="Remove ${escapeHtml(book.title)}">Remove</button></div>`;
+      article.querySelector('.book-open').addEventListener('click', () => openBook(book.id));
+      article.querySelector('.remove-book').addEventListener('click', async (event) => {
+        event.stopPropagation();
+        if (!confirm(`Remove “${book.title}” from this browser?`)) return;
+        await idbDelete(book.id);
+        await loadLibrary();
+        toast('Book removed');
+      });
+      els.libraryGrid.append(article);
+    }
+  }
+
+  function showReader() {
+    els.libraryHeader.hidden = true;
+    els.libraryView.hidden = true;
+    els.readerView.hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+
+  function showLibrary() {
+    closePanels();
+    els.readerView.hidden = true;
+    els.libraryHeader.hidden = false;
+    els.libraryView.hidden = false;
+    document.body.style.overflow = '';
+    loadLibrary();
+  }
+
+  function currentLocation() {
+    if (!rendition) return null;
+    try { return rendition.currentLocation(); } catch { return null; }
+  }
+
+  async function openBook(id) {
+    const record = await idbGet(id);
+    if (!record) return;
+    showBusy('Opening book…');
+    try {
+      await destroyReader();
+      currentRecord = record;
+      currentRecord.bookmarks ||= [];
+      currentRecord.highlights ||= [];
+      currentRecord.lastOpened = Date.now();
+      await idbPut(currentRecord);
+      showReader();
+      els.readerBookTitle.textContent = currentRecord.title;
+      els.readerChapterTitle.textContent = 'Opening…';
+      locationsReady = false;
+
+      const data = await currentRecord.fileBlob.arrayBuffer();
+      currentBook = ePub(data);
+      await currentBook.ready;
+      await setupRendition(currentRecord.cfi || undefined);
+      renderToc(await currentBook.loaded.navigation);
+      renderMarks();
+      generateLocations();
+      hideBusy();
+    } catch (error) {
+      console.error('Open book failed', error);
+      hideBusy();
+      toast('This EPUB could not be opened.', 4200);
+      showLibrary();
+    }
+  }
+
+  async function setupRendition(target) {
+    els.viewer.innerHTML = '';
+    rendition = currentBook.renderTo(els.viewer, {
+      width: '100%',
+      height: '100%',
+      spread: 'none',
+      flow: settings.flow
+    });
+
+    Object.entries(THEME_RULES).forEach(([name, rules]) => rendition.themes.register(name, rules));
+    applyReaderSettings(false);
+
+    rendition.on('relocated', onRelocated);
+    rendition.on('rendered', (section) => {
+      const navItem = findNavForHref(section?.href);
+      if (navItem) els.readerChapterTitle.textContent = navItem.label.trim();
+    });
+    rendition.on('selected', async (cfiRange, contents) => {
+      try {
+        const range = await currentBook.getRange(cfiRange);
+        const text = range?.toString()?.trim() || '';
+        if (!text) return;
+        pendingSelection = { cfi: cfiRange, text: text.slice(0, 600) };
+        els.selectionToolbar.hidden = false;
+        contents?.window?.getSelection()?.removeAllRanges();
+      } catch {}
+    });
+
+    for (const mark of currentRecord.highlights || []) attachHighlight(mark);
+    await rendition.display(target);
+    els.viewer.focus({ preventScroll: true });
+  }
+
+  async function destroyReader() {
+    clearTimeout(saveTimer);
+    pendingSelection = null;
+    els.selectionToolbar.hidden = true;
+    try { rendition?.destroy(); } catch {}
+    try { currentBook?.destroy(); } catch {}
+    rendition = null;
+    currentBook = null;
+    currentRecord = null;
+    locationsReady = false;
+    els.viewer.innerHTML = '';
+  }
+
+  function findNavForHref(href) {
+    const nav = currentBook?.navigation;
+    if (!nav || !href) return null;
+    return nav.get(href) || nav.toc?.find((item) => href.split('#')[0].endsWith((item.href || '').split('#')[0])) || null;
+  }
+
+  async function onRelocated(location) {
+    if (!currentRecord || !location?.start?.cfi) return;
+    currentRecord.cfi = location.start.cfi;
+    let percentage = Number.isFinite(location.start.percentage) ? location.start.percentage : null;
+    if ((percentage == null || Number.isNaN(percentage)) && locationsReady) {
+      try { percentage = currentBook.locations.percentageFromCfi(location.start.cfi); } catch {}
+    }
+    if (!Number.isFinite(percentage)) percentage = currentRecord.progress || 0;
+    currentRecord.progress = Math.max(0, Math.min(1, percentage));
+    updateProgressUi(location);
+    const navItem = findNavForHref(location.start.href);
+    els.readerChapterTitle.textContent = navItem?.label?.trim() || els.readerChapterTitle.textContent || 'Reading';
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => idbPut(currentRecord).catch(console.error), 220);
+  }
+
+  function updateProgressUi(location = currentLocation()) {
+    const progress = Math.max(0, Math.min(1, currentRecord?.progress || 0));
+    els.progressText.textContent = `${Math.round(progress * 100)}%`;
+    els.progressSlider.value = String(Math.round(progress * 1000));
+    const page = location?.start?.displayed?.page;
+    const total = location?.start?.displayed?.total;
+    els.locationText.textContent = page && total ? `${page} / ${total}` : '—';
+  }
+
+  async function generateLocations() {
+    if (!currentBook) return;
+    try {
+      await currentBook.locations.generate(1200);
+      locationsReady = true;
+      const loc = currentLocation();
+      if (loc?.start?.cfi) {
+        const p = currentBook.locations.percentageFromCfi(loc.start.cfi);
+        if (Number.isFinite(p)) currentRecord.progress = p;
+        updateProgressUi(loc);
+      }
+    } catch (error) {
+      console.warn('Location generation skipped', error);
+    }
+  }
+
+  async function goToProgress(value) {
+    if (!currentBook || !rendition || !locationsReady) return;
+    try {
+      const cfi = currentBook.locations.cfiFromPercentage(Number(value) / 1000);
+      if (cfi) await rendition.display(cfi);
+    } catch {}
+  }
+
+  function applyReaderSettings(persist = true) {
+    document.body.dataset.appTheme = settings.theme;
+    els.fontFamily.value = settings.fontFamily;
+    els.fontSize.value = settings.fontSize;
+    els.fontSizeValue.textContent = `${settings.fontSize}%`;
+    els.lineHeight.value = settings.lineHeight;
+    els.lineHeightValue.textContent = Number(settings.lineHeight).toFixed(2).replace(/0$/, '');
+    els.readerMargin.value = settings.margin;
+    els.readerMarginValue.textContent = settings.margin;
+    els.flowSelect.value = settings.flow;
+    document.querySelectorAll('.theme-chip').forEach((button) => button.classList.toggle('active', button.dataset.theme === settings.theme));
+    if (rendition) {
+      rendition.themes.select(settings.theme);
+      rendition.themes.font(settings.fontFamily);
+      rendition.themes.fontSize(`${settings.fontSize}%`);
+      rendition.themes.override('line-height', String(settings.lineHeight), true);
+      rendition.themes.override('padding-left', `${settings.margin}vw`, true);
+      rendition.themes.override('padding-right', `${settings.margin}vw`, true);
+      rendition.themes.override('max-width', '100%', true);
+    }
+    if (persist) saveSettings();
+  }
+
+  async function recreateRendition() {
+    if (!currentBook || !currentRecord) return;
+    const loc = currentLocation();
+    const target = loc?.start?.cfi || currentRecord.cfi;
+    try { rendition?.destroy(); } catch {}
+    rendition = null;
+    await setupRendition(target || undefined);
+  }
+
+  function flattenToc(items, level = 0, out = []) {
+    for (const item of items || []) {
+      out.push({ item, level });
+      flattenToc(item.subitems || item.children || [], level + 1, out);
+    }
+    return out;
+  }
+
+  function renderToc(navigation) {
+    els.tocList.innerHTML = '';
+    for (const { item, level } of flattenToc(navigation?.toc || [])) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `toc-item toc-level-${Math.min(level, 2)}`;
+      button.textContent = item.label?.trim() || 'Untitled section';
+      button.addEventListener('click', async () => {
+        closePanels();
+        await rendition.display(item.href);
+      });
+      els.tocList.append(button);
+    }
+    if (!els.tocList.children.length) els.tocList.innerHTML = '<p class="panel-status">No table of contents found.</p>';
+  }
+
+  function openPanel(panel) {
+    [els.tocPanel, els.searchPanel, els.appearancePanel, els.bookmarkPanel].forEach((p) => { p.hidden = p !== panel; });
+    if (panel === els.searchPanel) setTimeout(() => els.bookSearchInput.focus(), 0);
+  }
+
+  function closePanels() {
+    [els.tocPanel, els.searchPanel, els.appearancePanel, els.bookmarkPanel].forEach((p) => { p.hidden = true; });
+  }
+
+  async function searchBook(query) {
+    const q = query.trim();
+    if (!q || !currentBook) return;
+    els.searchResults.innerHTML = '';
+    els.searchStatus.textContent = 'Searching…';
+    const results = [];
+    const sections = currentBook.spine?.spineItems || [];
+    for (let i = 0; i < sections.length && results.length < 120; i++) {
+      const section = sections[i];
+      try {
+        await section.load(currentBook.load.bind(currentBook));
+        const matches = section.find(q) || [];
+        for (const match of matches.slice(0, 20)) {
+          results.push({ ...match, href: section.href });
+          if (results.length >= 120) break;
+        }
+      } catch (error) {
+        console.warn('Search section skipped', section?.href, error);
+      } finally {
+        try { section.unload(); } catch {}
+      }
+    }
+    els.searchStatus.textContent = results.length ? `${results.length} result${results.length === 1 ? '' : 's'}` : 'No matches';
+    for (const result of results) {
+      const div = document.createElement('div');
+      div.className = 'result-item';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.innerHTML = `<strong>${escapeHtml(findNavForHref(result.href)?.label || 'Match')}</strong><p>${escapeHtml(result.excerpt || '')}</p>`;
+      button.addEventListener('click', async () => { closePanels(); await rendition.display(result.cfi); });
+      div.append(button);
+      els.searchResults.append(div);
+    }
+  }
+
+  async function addBookmark() {
+    const loc = currentLocation();
+    if (!currentRecord || !loc?.start?.cfi) return;
+    const cfi = loc.start.cfi;
+    if (currentRecord.bookmarks.some((mark) => mark.cfi === cfi)) { toast('Already bookmarked'); return; }
+    currentRecord.bookmarks.unshift({
+      id: `bm-${Date.now()}`,
+      cfi,
+      label: els.readerChapterTitle.textContent || 'Bookmark',
+      percent: Math.round((currentRecord.progress || 0) * 100),
+      createdAt: Date.now()
+    });
+    await idbPut(currentRecord);
+    renderMarks();
+    toast('Bookmark added');
+  }
+
+  function attachHighlight(mark) {
+    if (!rendition || !mark?.cfi) return;
+    try {
+      rendition.annotations.highlight(mark.cfi, { id: mark.id }, null, 'bbr-highlight', {
+        fill: settings.theme === 'night' ? '#d8bc6a' : '#d0b84d',
+        'fill-opacity': '0.34',
+        'mix-blend-mode': settings.theme === 'night' ? 'screen' : 'multiply'
+      });
+    } catch (error) { console.warn('Highlight attach failed', error); }
+  }
+
+  async function savePendingHighlight() {
+    if (!pendingSelection || !currentRecord) return;
+    const mark = { id: `hl-${Date.now()}`, cfi: pendingSelection.cfi, text: pendingSelection.text, createdAt: Date.now() };
+    currentRecord.highlights.unshift(mark);
+    attachHighlight(mark);
+    await idbPut(currentRecord);
+    pendingSelection = null;
+    els.selectionToolbar.hidden = true;
+    renderMarks();
+    toast('Highlight saved');
+  }
+
+  function renderMarks() {
+    els.bookmarkList.innerHTML = '';
+    els.highlightList.innerHTML = '';
+    renderMarkGroup(currentRecord?.bookmarks || [], els.bookmarkList, 'bookmark');
+    renderMarkGroup(currentRecord?.highlights || [], els.highlightList, 'highlight');
+  }
+
+  function renderMarkGroup(items, host, type) {
+    if (!items.length) { host.innerHTML = '<p class="panel-status">None yet.</p>'; return; }
+    for (const mark of items) {
+      const item = document.createElement('div');
+      item.className = 'mark-item';
+      const jump = document.createElement('button');
+      jump.type = 'button';
+      jump.className = 'jump-mark';
+      jump.innerHTML = type === 'highlight'
+        ? `<strong>${escapeHtml((mark.text || '').slice(0, 90))}${(mark.text || '').length > 90 ? '…' : ''}</strong><p>Highlight</p>`
+        : `<strong>${escapeHtml(mark.label || 'Bookmark')}</strong><p>${mark.percent ?? 0}% through book</p>`;
+      jump.addEventListener('click', async () => { closePanels(); await rendition.display(mark.cfi); });
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'remove-mark';
+      remove.textContent = '×';
+      remove.setAttribute('aria-label', `Remove ${type}`);
+      remove.addEventListener('click', async () => {
+        const key = type === 'highlight' ? 'highlights' : 'bookmarks';
+        currentRecord[key] = currentRecord[key].filter((m) => m.id !== mark.id);
+        if (type === 'highlight') { try { rendition.annotations.remove(mark.cfi, 'highlight'); } catch {} }
+        await idbPut(currentRecord);
+        renderMarks();
+      });
+      item.append(jump, remove);
+      host.append(item);
+    }
+  }
+
+  async function pageNext() {
+    if (!rendition) return;
+    await rendition.next();
+  }
+
+  async function pagePrev() {
+    if (!rendition) return;
+    await rendition.prev();
+  }
+
+  function registerEvents() {
+    els.epubInput.addEventListener('change', () => importFiles(els.epubInput.files));
+    els.librarySearch.addEventListener('input', renderLibrary);
+    els.librarySort.addEventListener('change', renderLibrary);
+    els.backToLibrary.addEventListener('click', showLibrary);
+    els.prevPage.addEventListener('click', pagePrev);
+    els.nextPage.addEventListener('click', pageNext);
+    els.tocButton.addEventListener('click', () => openPanel(els.tocPanel));
+    els.searchButton.addEventListener('click', () => openPanel(els.searchPanel));
+    els.appearanceButton.addEventListener('click', () => openPanel(els.appearancePanel));
+    els.marksButton.addEventListener('click', () => openPanel(els.bookmarkPanel));
+    els.bookmarkButton.addEventListener('click', addBookmark);
+    document.querySelectorAll('[data-close-panel]').forEach((button) => button.addEventListener('click', closePanels));
+
+    els.bookSearchForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      searchBook(els.bookSearchInput.value);
+    });
+    els.progressSlider.addEventListener('change', () => goToProgress(els.progressSlider.value));
+
+    els.themeGrid.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-theme]');
+      if (!button) return;
+      settings.theme = button.dataset.theme;
+      applyReaderSettings();
+      (currentRecord?.highlights || []).forEach((mark) => {
+        try { rendition.annotations.remove(mark.cfi, 'highlight'); } catch {}
+        attachHighlight(mark);
+      });
+    });
+    els.fontFamily.addEventListener('change', () => { settings.fontFamily = els.fontFamily.value; applyReaderSettings(); });
+    els.fontSize.addEventListener('input', () => { settings.fontSize = Number(els.fontSize.value); applyReaderSettings(); });
+    els.lineHeight.addEventListener('input', () => { settings.lineHeight = Number(els.lineHeight.value); applyReaderSettings(); });
+    els.readerMargin.addEventListener('input', () => { settings.margin = Number(els.readerMargin.value); applyReaderSettings(); });
+    els.flowSelect.addEventListener('change', async () => {
+      settings.flow = els.flowSelect.value;
+      saveSettings();
+      await recreateRendition();
+    });
+
+    els.highlightSelection.addEventListener('click', savePendingHighlight);
+    els.clearSelection.addEventListener('click', () => { pendingSelection = null; els.selectionToolbar.hidden = true; });
+
+    document.addEventListener('keydown', (event) => {
+      if (els.readerView.hidden || ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return;
+      if (event.key === 'ArrowRight' || event.key === 'PageDown') { event.preventDefault(); pageNext(); }
+      if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); pagePrev(); }
+      if (event.key === 'Escape') closePanels();
+    });
+
+    els.readerStage.addEventListener('pointerdown', (event) => { pointerStart = { x: event.clientX, y: event.clientY, t: Date.now() }; });
+    els.readerStage.addEventListener('pointerup', (event) => {
+      if (!pointerStart || settings.flow !== 'paginated') return;
+      const dx = event.clientX - pointerStart.x;
+      const dy = event.clientY - pointerStart.y;
+      const dt = Date.now() - pointerStart.t;
+      pointerStart = null;
+      if (dt < 700 && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.3) dx < 0 ? pageNext() : pagePrev();
+    });
+
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault();
+      installPrompt = event;
+      els.installButton.hidden = false;
+    });
+    els.installButton.addEventListener('click', async () => {
+      if (!installPrompt) return;
+      installPrompt.prompt();
+      await installPrompt.userChoice;
+      installPrompt = null;
+      els.installButton.hidden = true;
+    });
+    window.addEventListener('appinstalled', () => { installPrompt = null; els.installButton.hidden = true; });
+  }
+
+  async function init() {
+    if (!window.ePub || !window.JSZip) {
+      els.emptyLibrary.innerHTML = '<h3>Reader engine unavailable.</h3><p>Reload the page. If the problem persists, the local EPUB libraries did not load.</p>';
+      return;
+    }
+    applyReaderSettings(false);
+    registerEvents();
+    await loadLibrary();
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch((error) => console.warn('Service worker unavailable', error));
+    document.documentElement.dataset.ready = 'true';
+  }
+
+  init().catch((error) => {
+    console.error(error);
+    hideBusy();
+    toast('Reader initialization failed.', 4500);
+  });
+})();
