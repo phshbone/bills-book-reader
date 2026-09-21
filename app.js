@@ -198,7 +198,7 @@
             title: (meta?.title || file.name.replace(/\.epub$/i, '')).trim(),
             author: (meta?.creator || 'Unknown author').trim(),
             fileName: file.name,
-            fileBlob: file,
+            epubData: arrayBuffer.slice(0),
             coverData,
             addedAt: now,
             lastOpened: 0,
@@ -307,8 +307,18 @@
       els.readerChapterTitle.textContent = 'Opening…';
       locationsReady = false;
 
-      const data = await currentRecord.fileBlob.arrayBuffer();
-      currentBook = ePub(data);
+      let data = currentRecord.epubData;
+      if (!(data instanceof ArrayBuffer)) {
+        if (currentRecord.fileBlob?.arrayBuffer) {
+          data = await currentRecord.fileBlob.arrayBuffer();
+          currentRecord.epubData = data.slice(0);
+          delete currentRecord.fileBlob;
+          await idbPut(currentRecord);
+        } else {
+          throw new Error('Stored EPUB data is unavailable');
+        }
+      }
+      currentBook = ePub(data.slice(0));
       await currentBook.ready;
       await setupRendition(currentRecord.cfi || undefined);
       renderToc(await currentBook.loaded.navigation);
@@ -324,11 +334,33 @@
   }
 
   function readerViewportSize() {
-    const rect = els.readerStage.getBoundingClientRect();
+    const mount = els.viewer.querySelector('.epub-mount');
+    const rect = (mount || els.readerStage).getBoundingClientRect();
     return {
       width: Math.max(1, Math.floor(rect.width)),
       height: Math.max(1, Math.floor(rect.height))
     };
+  }
+
+  function readerGutterPx() {
+    const viewportWidth = window.visualViewport?.width || window.innerWidth || 0;
+    return Math.max(0, Math.round(viewportWidth * (Number(settings.margin) || 0) / 100));
+  }
+
+  function configureReaderMount() {
+    let mount = els.viewer.querySelector('.epub-mount');
+    if (!mount) {
+      mount = document.createElement('div');
+      mount.className = 'epub-mount';
+      els.viewer.replaceChildren(mount);
+    }
+    const gutter = readerGutterPx();
+    mount.style.width = `calc(100% - ${gutter * 2}px)`;
+    mount.style.height = '100%';
+    mount.style.margin = '0 auto';
+    mount.style.minWidth = '0';
+    mount.style.overflow = 'hidden';
+    return mount;
   }
 
   function installContentPagingGuards(contents) {
@@ -415,9 +447,10 @@
 
   async function setupRendition(target) {
     els.viewer.innerHTML = '';
+    const mount = configureReaderMount();
     const viewport = readerViewportSize();
     lastReaderSize = viewport;
-    rendition = currentBook.renderTo(els.viewer, {
+    rendition = currentBook.renderTo(mount, {
       width: viewport.width,
       height: viewport.height,
       manager: 'default',
@@ -540,9 +573,10 @@
       rendition.themes.font(settings.fontFamily);
       rendition.themes.fontSize(`${settings.fontSize}%`);
       rendition.themes.override('line-height', String(settings.lineHeight), true);
-      rendition.themes.override('padding-left', `${settings.margin}vw`, true);
-      rendition.themes.override('padding-right', `${settings.margin}vw`, true);
+      rendition.themes.override('padding-left', '0px', true);
+      rendition.themes.override('padding-right', '0px', true);
       rendition.themes.override('max-width', '100%', true);
+      configureReaderMount();
     }
     if (persist) saveSettings();
   }
@@ -770,7 +804,18 @@
     els.fontFamily.addEventListener('change', () => { settings.fontFamily = els.fontFamily.value; applyReaderSettings(); });
     els.fontSize.addEventListener('input', () => { settings.fontSize = Number(els.fontSize.value); applyReaderSettings(); });
     els.lineHeight.addEventListener('input', () => { settings.lineHeight = Number(els.lineHeight.value); applyReaderSettings(); });
-    els.readerMargin.addEventListener('input', () => { settings.margin = Number(els.readerMargin.value); applyReaderSettings(); });
+    els.readerMargin.addEventListener('input', async () => {
+      settings.margin = Number(els.readerMargin.value);
+      applyReaderSettings();
+      if (rendition) {
+        const target = currentLocation()?.start?.cfi || currentRecord?.cfi;
+        const mount = configureReaderMount();
+        const rect = mount.getBoundingClientRect();
+        lastReaderSize = { width: Math.max(1, Math.floor(rect.width)), height: Math.max(1, Math.floor(rect.height)) };
+        rendition.resize(lastReaderSize.width, lastReaderSize.height);
+        if (settings.flow === 'paginated' && target) await rendition.display(target);
+      }
+    });
     els.flowSelect.addEventListener('change', async () => {
       settings.flow = els.flowSelect.value;
       saveSettings();
