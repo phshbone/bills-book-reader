@@ -1,0 +1,17 @@
+{
+  "name": "Bill’s Book Reader",
+  "short_name": "Book Reader",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#e9e6dc",
+  "theme_color": "#e9e6dc",
+  "description": "A lightweight, local-first EPUB reader.",
+  "icons": [
+    {
+      "src": "icons/book.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
