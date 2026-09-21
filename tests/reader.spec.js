@@ -99,7 +99,9 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
 test('internal EPUB links stay inside the reader', async ({ page }) => {
   await importFixture(page);
   const appUrl = page.url();
-  await page.frameLocator('#viewer iframe').first().getByRole('link', { name: 'Jump to Second Chapter' }).click();
+  const chapterLink = page.frameLocator('#viewer iframe').first().getByRole('link', { name: 'Jump to Second Chapter' });
+  await expect(chapterLink).toHaveAttribute('data-bbr-link-installed', 'true');
+  await chapterLink.click();
   await expect(page.locator('#readerChapterTitle')).toHaveText('Second Chapter');
   expect(page.url()).toBe(appUrl);
 });
