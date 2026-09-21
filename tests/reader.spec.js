@@ -131,10 +131,16 @@ test('paginated mode locks content to one viewport and serializes page turns', a
 
   const shellGeometry = await page.evaluate(() => {
     const viewer = document.querySelector('#viewer').getBoundingClientRect();
-    const iframe = document.querySelector('#viewer iframe').getBoundingClientRect();
-    return { viewerWidth: viewer.width, iframeWidth: iframe.width };
+    const containerNode = document.querySelector('#viewer .epub-container');
+    const container = containerNode.getBoundingClientRect();
+    return {
+      viewerWidth: viewer.width,
+      containerWidth: container.width,
+      containerOverflowX: getComputedStyle(containerNode).overflowX
+    };
   });
-  expect(Math.abs(shellGeometry.viewerWidth - shellGeometry.iframeWidth)).toBeLessThanOrEqual(2);
+  expect(Math.abs(shellGeometry.viewerWidth - shellGeometry.containerWidth)).toBeLessThanOrEqual(2);
+  expect(shellGeometry.containerOverflowX).toBe('hidden');
 
   const contentGuards = await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
     const doc = body.ownerDocument;
