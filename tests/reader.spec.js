@@ -83,3 +83,40 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await expect(page.locator('#searchStatus')).toContainText('result');
   await expect(page.locator('#searchResults')).toContainText('copper lantern');
 });
+
+
+test('reading preferences persist across reloads', async ({ page }) => {
+  await importFixture(page);
+  await page.getByRole('button', { name: 'Reading appearance' }).click();
+  await page.getByRole('button', { name: /Paper/ }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-app-theme', 'paper');
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
+  await expect(page.locator('body')).toHaveAttribute('data-app-theme', 'paper');
+});
+
+test('PWA shell reloads while offline after its first online load', async ({ page, context }) => {
+  await page.evaluate(async () => { await navigator.serviceWorker.ready; });
+  await expect.poll(
+    () => page.evaluate(() => Boolean(navigator.serviceWorker.controller)),
+    { timeout: 15000, message: 'service worker should control the page before offline reload' }
+  ).toBe(true);
+
+  await context.setOffline(true);
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
+    await expect(page.getByRole('heading', { name: 'Bill’s Book Reader' })).toBeVisible();
+  } finally {
+    await context.setOffline(false);
+  }
+});
+
+test('library shell fits the active viewport without horizontal overflow', async ({ page }) => {
+  const metrics = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    scrollWidth: document.documentElement.scrollWidth
+  }));
+  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.viewport + 1);
+  await expect(page.getByText('Bring your own books.')).toBeVisible();
+});
