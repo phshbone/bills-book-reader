@@ -1,0 +1,33 @@
+name: Live Smoke Test
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Deploy Pages"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      BASE_URL: https://phshbone.github.io/bills-book-reader/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:smoke
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-smoke-evidence
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
