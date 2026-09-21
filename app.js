@@ -402,19 +402,23 @@
 
   function installBookLinkHandler(contents, sectionHref) {
     const doc = contents?.document;
-    if (!doc || doc.__bbrBookLinksInstalled) return;
-    doc.__bbrBookLinksInstalled = true;
-    doc.addEventListener('click', (event) => {
-      const anchor = event.target?.closest?.('a[href]');
-      if (!anchor) return;
+    if (!doc) return;
+    for (const anchor of doc.querySelectorAll('a[href]')) {
+      if (anchor.dataset.bbrLinkInstalled === 'true') continue;
       const rawHref = anchor.getAttribute('href') || '';
-      if (/^(?:https?:|mailto:|tel:)/i.test(rawHref)) return;
+      if (/^(?:https?:|mailto:|tel:|data:|javascript:)/i.test(rawHref)) continue;
       const target = resolveBookHref(rawHref, sectionHref);
-      if (!target) return;
-      event.preventDefault();
-      event.stopPropagation();
-      rendition?.display(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
-    });
+      if (!target) continue;
+      anchor.dataset.bbrLinkInstalled = 'true';
+      anchor.dataset.bbrHref = rawHref;
+      // Neutralize browser navigation so WebKit cannot escape the EPUB iframe to GitHub Pages.
+      anchor.setAttribute('href', '#');
+      anchor.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        rendition?.display(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
+      }, true);
+    }
   }
 
   function installContentPagingGuards(contents) {
