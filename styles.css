@@ -105,9 +105,24 @@ body[data-app-theme="paper"] { --shell:#ece9e1; --panel:#ffffff; --paper:#fbfaf6
 .reader-title-wrap strong, .reader-title-wrap span { display:block; max-width:55vw; margin:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .reader-title-wrap strong { font:600 15px/1.25 Georgia,serif; }
 .reader-title-wrap span { color:var(--muted); font-size:11px; margin-top:2px; }
-.reader-stage { min-height:0; position:relative; display:grid; place-items:stretch; overflow:hidden; }
-.viewer { min-width:0; min-height:0; width:100%; height:100%; background:var(--paper); outline:0; }
-.viewer iframe { border:0 !important; }
+.reader-stage { min-height:0; position:relative; display:grid; place-items:stretch; overflow:hidden; perspective:1600px; touch-action:pan-y; }
+.viewer { min-width:0; min-height:0; width:100%; height:100%; background:var(--paper); outline:0; transform:translateZ(0); backface-visibility:hidden; will-change:transform,opacity; }
+.viewer iframe { border:0 !important; width:100% !important; height:100% !important; overflow:hidden !important; }
+.reader-stage::after { content:''; position:absolute; inset:0; z-index:20; pointer-events:none; opacity:0; background:linear-gradient(90deg, transparent 0%, rgba(35,35,30,.04) 38%, rgba(35,35,30,.18) 50%, rgba(255,255,255,.12) 61%, transparent 100%); }
+.reader-stage.page-turn-next.page-turn-out .viewer { transform-origin:left center; animation:pageFoldOutNext 105ms ease-in both; }
+.reader-stage.page-turn-next.page-turn-in .viewer { transform-origin:right center; animation:pageFoldInNext 175ms cubic-bezier(.22,.72,.2,1) both; }
+.reader-stage.page-turn-prev.page-turn-out .viewer { transform-origin:right center; animation:pageFoldOutPrev 105ms ease-in both; }
+.reader-stage.page-turn-prev.page-turn-in .viewer { transform-origin:left center; animation:pageFoldInPrev 175ms cubic-bezier(.22,.72,.2,1) both; }
+.reader-stage.page-turn-next.page-turn-out::after { animation:pageShadowNextOut 105ms ease-in both; }
+.reader-stage.page-turn-next.page-turn-in::after { animation:pageShadowNextIn 175ms ease-out both; }
+.reader-stage.page-turn-prev.page-turn-out::after { transform:scaleX(-1); animation:pageShadowNextOut 105ms ease-in both; }
+.reader-stage.page-turn-prev.page-turn-in::after { transform:scaleX(-1); animation:pageShadowNextIn 175ms ease-out both; }
+@keyframes pageFoldOutNext { from { transform:translateX(0) rotateY(0deg); opacity:1; } to { transform:translateX(-1.6%) rotateY(-6deg); opacity:.82; } }
+@keyframes pageFoldInNext { from { transform:translateX(2.2%) rotateY(5deg); opacity:.84; } to { transform:translateX(0) rotateY(0deg); opacity:1; } }
+@keyframes pageFoldOutPrev { from { transform:translateX(0) rotateY(0deg); opacity:1; } to { transform:translateX(1.6%) rotateY(6deg); opacity:.82; } }
+@keyframes pageFoldInPrev { from { transform:translateX(-2.2%) rotateY(-5deg); opacity:.84; } to { transform:translateX(0) rotateY(0deg); opacity:1; } }
+@keyframes pageShadowNextOut { from { opacity:0; transform:translateX(52%); } to { opacity:.7; transform:translateX(-6%); } }
+@keyframes pageShadowNextIn { from { opacity:.62; transform:translateX(6%); } to { opacity:0; transform:translateX(-52%); } }
 .page-turn { position:absolute; top:50%; transform:translateY(-50%); z-index:25; width:42px; height:72px; border:1px solid var(--line); background:color-mix(in srgb,var(--panel) 84%,transparent); color:var(--muted); font-size:35px; border-radius:12px; opacity:.32; transition:opacity .15s ease; }
 .page-turn:hover, .page-turn:focus { opacity:1; }
 .page-turn-left { left:8px; }
