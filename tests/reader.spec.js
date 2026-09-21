@@ -59,7 +59,11 @@ test('imports an EPUB, renders it, and persists the library', async ({ page }) =
   await page.getByRole('button', { name: 'Back to library' }).click();
   await expect(page.getByTestId('library-grid').locator('[data-book-title="Smoke Test Book"]')).toBeVisible();
   await page.reload();
-  await expect(page.getByTestId('library-grid').locator('[data-book-title="Smoke Test Book"]')).toBeVisible();
+  const card = page.getByTestId('library-grid').locator('[data-book-title="Smoke Test Book"]');
+  await expect(card).toBeVisible();
+  await card.locator('.book-open').click();
+  await expect(page.locator('#readerView')).toBeVisible();
+  await expect(page.frameLocator('#viewer iframe').getByText('First Light')).toBeVisible();
 });
 
 test('reader controls expose contents, themes, search, and bookmarks', async ({ page }) => {
@@ -131,29 +135,41 @@ test('paginated mode locks content to one viewport and serializes page turns', a
 
   const shellGeometry = await page.evaluate(() => {
     const viewer = document.querySelector('#viewer').getBoundingClientRect();
+    const mountNode = document.querySelector('#viewer .epub-mount');
+    const mount = mountNode.getBoundingClientRect();
     const containerNode = document.querySelector('#viewer .epub-container');
     const container = containerNode.getBoundingClientRect();
     return {
       viewerWidth: viewer.width,
+      mountWidth: mount.width,
+      mountLeftGap: mount.left - viewer.left,
+      mountRightGap: viewer.right - mount.right,
       containerWidth: container.width,
       containerOverflowX: getComputedStyle(containerNode).overflowX
     };
   });
-  expect(Math.abs(shellGeometry.viewerWidth - shellGeometry.containerWidth)).toBeLessThanOrEqual(2);
+  expect(shellGeometry.mountWidth).toBeLessThan(shellGeometry.viewerWidth);
+  expect(Math.abs(shellGeometry.mountLeftGap - shellGeometry.mountRightGap)).toBeLessThanOrEqual(2);
+  expect(Math.abs(shellGeometry.mountWidth - shellGeometry.containerWidth)).toBeLessThanOrEqual(2);
   expect(shellGeometry.containerOverflowX).toBe('hidden');
 
   const contentGuards = await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
     const doc = body.ownerDocument;
+    const style = getComputedStyle(body);
     return {
-      bodyOverflowX: getComputedStyle(body).overflowX,
+      bodyOverflowX: style.overflowX,
       rootOverflowX: getComputedStyle(doc.documentElement).overflowX,
-      bodyTouchAction: getComputedStyle(body).touchAction,
-      rootTouchAction: getComputedStyle(doc.documentElement).touchAction
+      bodyTouchAction: style.touchAction,
+      rootTouchAction: getComputedStyle(doc.documentElement).touchAction,
+      paddingLeft: style.paddingLeft,
+      paddingRight: style.paddingRight
     };
   });
   expect(contentGuards.bodyOverflowX).toBe('hidden');
   expect(contentGuards.rootOverflowX).toBe('hidden');
   expect([contentGuards.bodyTouchAction, contentGuards.rootTouchAction]).toContain('pan-y');
+  expect(parseFloat(contentGuards.paddingLeft)).toBeLessThanOrEqual(1);
+  expect(parseFloat(contentGuards.paddingRight)).toBeLessThanOrEqual(1);
 
   const before = await page.locator('#locationText').textContent();
   const beforePage = Number(before.split('/')[0].trim());
