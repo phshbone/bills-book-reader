@@ -421,17 +421,8 @@
   async function displayBookTarget(target) {
     const match = findSpineTarget(target);
     if (!match) return rendition?.display(target);
-    await rendition.display(match.section.index);
-    if (match.hash) {
-      const id = decodeURIComponent(match.hash.slice(1));
-      for (const contents of rendition?.getContents?.() || []) {
-        const node = contents.document?.getElementById(id) || contents.document?.querySelector?.(`[name="${CSS.escape(id)}"]`);
-        if (node) {
-          node.scrollIntoView({ block: 'start' });
-          break;
-        }
-      }
-    }
+    const canonicalTarget = `${match.section.href}${match.hash || ''}`;
+    return rendition.display(canonicalTarget);
   }
 
   function installBookLinkHandler(contents, sectionHref) {
