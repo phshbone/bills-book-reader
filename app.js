@@ -449,8 +449,20 @@
       anchor.setAttribute('role', 'link');
       anchor.setAttribute('tabindex', '0');
 
-      anchor.addEventListener('click', (event) => activateTarget(event, target), true);
-      anchor.addEventListener('touchend', (event) => activateTarget(event, target), { capture: true, passive: false });
+      let lastTouchActivation = 0;
+      anchor.addEventListener('touchend', (event) => {
+        lastTouchActivation = Date.now();
+        activateTarget(event, target);
+      }, { capture: true, passive: false });
+      anchor.addEventListener('click', (event) => {
+        if (Date.now() - lastTouchActivation < 750) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation?.();
+          return;
+        }
+        activateTarget(event, target);
+      }, true);
       anchor.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') activateTarget(event, target);
       }, true);
