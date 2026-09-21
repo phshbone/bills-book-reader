@@ -410,6 +410,7 @@
 
     const activateTarget = (target) => {
       if (!target) return;
+      document.documentElement.dataset.bbrInternalLink = target;
       rendition?.display(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
     };
 
