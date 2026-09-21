@@ -402,15 +402,12 @@
 
   function installBookLinkHandler(contents, sectionHref) {
     const doc = contents?.document;
-    const win = contents?.window || doc?.defaultView;
-    if (!doc || !win) return;
+    if (!doc) return;
 
-    const linkTargets = new Map();
-    let linkIndex = 0;
-
-    const activateTarget = (target) => {
-      if (!target) return;
-      document.documentElement.dataset.bbrInternalLink = target;
+    const activateTarget = (event, target) => {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      event?.stopImmediatePropagation?.();
       rendition?.display(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
     };
 
@@ -421,26 +418,18 @@
       const target = resolveBookHref(rawHref, sectionHref);
       if (!target) continue;
 
-      const token = `bbr-link-${linkIndex++}`;
-      linkTargets.set(token, target);
       anchor.dataset.bbrLinkInstalled = 'true';
       anchor.dataset.bbrHref = rawHref;
-      anchor.setAttribute('href', `#${token}`);
+      anchor.removeAttribute('href');
+      anchor.setAttribute('role', 'link');
+      anchor.setAttribute('tabindex', '0');
 
-      anchor.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        activateTarget(target);
+      anchor.addEventListener('click', (event) => activateTarget(event, target), true);
+      anchor.addEventListener('touchend', (event) => activateTarget(event, target), { capture: true, passive: false });
+      anchor.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') activateTarget(event, target);
       }, true);
     }
-
-    win.addEventListener('hashchange', () => {
-      const token = win.location.hash.replace(/^#/, '');
-      const target = linkTargets.get(token);
-      if (!target) return;
-      try { win.history.replaceState(null, '', win.location.pathname + win.location.search); } catch {}
-      activateTarget(target);
-    });
   }
 
   function installContentPagingGuards(contents) {
