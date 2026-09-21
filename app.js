@@ -64,6 +64,10 @@
   let installPrompt = null;
   let pointerStart = null;
   let locationsReady = false;
+  let pageTurnBusy = false;
+  let readerResizeTimer = null;
+  let readerResizeObserver = null;
+  let lastReaderSize = { width: 0, height: 0 };
 
   function openDb() {
     if (dbPromise) return dbPromise;
@@ -319,20 +323,117 @@
     }
   }
 
+  function readerViewportSize() {
+    const rect = els.readerStage.getBoundingClientRect();
+    return {
+      width: Math.max(1, Math.floor(rect.width)),
+      height: Math.max(1, Math.floor(rect.height))
+    };
+  }
+
+  function installContentPagingGuards(contents) {
+    const doc = contents?.document;
+    if (!doc?.documentElement || !doc.body) return;
+
+    const root = doc.documentElement;
+    const body = doc.body;
+    [root, body].forEach((node) => {
+      node.style.setProperty('overflow-x', 'hidden', 'important');
+      node.style.setProperty('overscroll-behavior-x', 'none', 'important');
+    });
+
+    if (settings.flow === 'paginated') {
+      root.style.setProperty('touch-action', 'pan-y', 'important');
+      body.style.setProperty('touch-action', 'pan-y', 'important');
+    } else {
+      root.style.removeProperty('touch-action');
+      body.style.removeProperty('touch-action');
+    }
+
+    let touchStart = null;
+    let horizontalIntent = false;
+
+    doc.addEventListener('touchstart', (event) => {
+      if (settings.flow !== 'paginated' || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      touchStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
+      horizontalIntent = false;
+    }, { passive: true });
+
+    doc.addEventListener('touchmove', (event) => {
+      if (!touchStart || settings.flow !== 'paginated' || event.touches.length !== 1) return;
+      const touch = event.touches[0];
+      const dx = touch.clientX - touchStart.x;
+      const dy = touch.clientY - touchStart.y;
+      if (!horizontalIntent && Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy) * 1.2 && Date.now() - touchStart.t < 600) {
+        horizontalIntent = true;
+      }
+      if (horizontalIntent && event.cancelable) event.preventDefault();
+    }, { passive: false });
+
+    doc.addEventListener('touchend', (event) => {
+      if (!touchStart || settings.flow !== 'paginated') {
+        touchStart = null;
+        horizontalIntent = false;
+        return;
+      }
+      const touch = event.changedTouches?.[0];
+      if (!touch) return;
+      const dx = touch.clientX - touchStart.x;
+      const dy = touch.clientY - touchStart.y;
+      const dt = Date.now() - touchStart.t;
+      const selectedText = doc.getSelection?.()?.toString()?.trim();
+      touchStart = null;
+      horizontalIntent = false;
+      if (selectedText) return;
+      if (dt < 700 && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+        dx < 0 ? pageNext() : pagePrev();
+      }
+    }, { passive: true });
+  }
+
+  async function syncReaderViewport(force = false) {
+    if (!rendition) return;
+    const size = readerViewportSize();
+    if (!force && Math.abs(size.width - lastReaderSize.width) < 2 && Math.abs(size.height - lastReaderSize.height) < 2) return;
+
+    const target = currentLocation()?.start?.cfi || currentRecord?.cfi;
+    lastReaderSize = size;
+    try {
+      rendition.resize(size.width, size.height);
+      if (typeof rendition.spread === 'function') rendition.spread('none');
+      if (settings.flow === 'paginated' && target) await rendition.display(target);
+    } catch (error) {
+      console.warn('Reader viewport sync skipped', error);
+    }
+  }
+
+  function scheduleReaderViewportSync(force = false) {
+    clearTimeout(readerResizeTimer);
+    readerResizeTimer = setTimeout(() => syncReaderViewport(force), force ? 80 : 160);
+  }
+
   async function setupRendition(target) {
     els.viewer.innerHTML = '';
+    const viewport = readerViewportSize();
+    lastReaderSize = viewport;
     rendition = currentBook.renderTo(els.viewer, {
-      width: '100%',
-      height: '100%',
+      width: viewport.width,
+      height: viewport.height,
+      manager: 'default',
       spread: 'none',
       flow: settings.flow
     });
+
+    if (typeof rendition.spread === 'function') rendition.spread('none');
+    rendition.hooks?.content?.register?.(installContentPagingGuards);
 
     Object.entries(THEME_RULES).forEach(([name, rules]) => rendition.themes.register(name, rules));
     applyReaderSettings(false);
 
     rendition.on('relocated', onRelocated);
-    rendition.on('rendered', (section) => {
+    rendition.on('rendered', (section, view) => {
+      installContentPagingGuards(view?.contents);
       const navItem = findNavForHref(section?.href);
       if (navItem) els.readerChapterTitle.textContent = navItem.label.trim();
     });
@@ -354,6 +455,9 @@
 
   async function destroyReader() {
     clearTimeout(saveTimer);
+    clearTimeout(readerResizeTimer);
+    pageTurnBusy = false;
+    els.readerStage.classList.remove('page-turn-active', 'page-turn-next', 'page-turn-prev', 'page-turn-out', 'page-turn-in');
     pendingSelection = null;
     els.selectionToolbar.hidden = true;
     try { rendition?.destroy(); } catch {}
@@ -596,14 +700,41 @@
     }
   }
 
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function turnPage(direction) {
+    if (!rendition || pageTurnBusy) return;
+    pageTurnBusy = true;
+    const canAnimate = settings.flow === 'paginated' && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const stage = els.readerStage;
+    const directionClass = direction === 'next' ? 'page-turn-next' : 'page-turn-prev';
+
+    try {
+      if (canAnimate) {
+        stage.classList.add('page-turn-active', directionClass, 'page-turn-out');
+        await wait(105);
+      }
+
+      if (direction === 'next') await rendition.next();
+      else await rendition.prev();
+
+      if (canAnimate) {
+        stage.classList.remove('page-turn-out');
+        stage.classList.add('page-turn-in');
+        await wait(175);
+      }
+    } finally {
+      stage.classList.remove('page-turn-active', 'page-turn-next', 'page-turn-prev', 'page-turn-out', 'page-turn-in');
+      pageTurnBusy = false;
+    }
+  }
+
   async function pageNext() {
-    if (!rendition) return;
-    await rendition.next();
+    return turnPage('next');
   }
 
   async function pagePrev() {
-    if (!rendition) return;
-    await rendition.prev();
+    return turnPage('prev');
   }
 
   function registerEvents() {
@@ -665,6 +796,15 @@
       pointerStart = null;
       if (dt < 700 && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.3) dx < 0 ? pageNext() : pagePrev();
     });
+
+    const handleViewportChange = () => scheduleReaderViewportSync();
+    window.addEventListener('resize', handleViewportChange, { passive: true });
+    window.addEventListener('orientationchange', () => scheduleReaderViewportSync(true), { passive: true });
+    window.visualViewport?.addEventListener('resize', handleViewportChange, { passive: true });
+    if ('ResizeObserver' in window) {
+      readerResizeObserver = new ResizeObserver(handleViewportChange);
+      readerResizeObserver.observe(els.readerStage);
+    }
 
     window.addEventListener('beforeinstallprompt', (event) => {
       event.preventDefault();
