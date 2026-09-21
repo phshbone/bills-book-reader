@@ -402,31 +402,38 @@
 
   function installBookLinkHandler(contents, sectionHref) {
     const doc = contents?.document;
-    if (!doc) return;
-    for (const anchor of doc.querySelectorAll('a[href]')) {
+    const win = contents?.window;
+    if (!doc || !win) return;
+
+    for (const anchor of doc.querySelectorAll('a[href], a[data-bbr-href]')) {
       if (anchor.dataset.bbrLinkInstalled === 'true') continue;
-      const rawHref = anchor.getAttribute('href') || '';
+      const rawHref = anchor.getAttribute('href') || anchor.dataset.bbrHref || '';
       if (/^(?:https?:|mailto:|tel:|data:|javascript:)/i.test(rawHref)) continue;
       const target = resolveBookHref(rawHref, sectionHref);
       if (!target) continue;
       anchor.dataset.bbrLinkInstalled = 'true';
       anchor.dataset.bbrHref = rawHref;
-      // Keep a real link target so iOS/WebKit dispatches a normal anchor click, but point
-      // its native action at a non-navigating javascript URL. The parent-installed onclick
-      // then hands navigation back to EPUB.js.
+      anchor.dataset.bbrTarget = target;
+      // Keep an anchor for accessibility, but make its native action inert. Navigation is
+      // intercepted at the iframe window in capture phase before WebKit can resolve the URL.
       anchor.setAttribute('href', 'javascript:void(0)');
-      const activate = (event) => {
-        event?.preventDefault?.();
-        event?.stopImmediatePropagation?.();
-        rendition?.display(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
-        return false;
-      };
-      anchor.onclick = activate;
-      anchor.addEventListener('touchend', activate, { capture: true, passive: false });
-      anchor.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') activate(event);
-      }, true);
     }
+
+    if (win.__bbrLinkCaptureInstalled) return;
+    win.__bbrLinkCaptureInstalled = true;
+
+    const activate = (event) => {
+      const anchor = event.target?.closest?.('a[data-bbr-target]');
+      if (!anchor) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const target = anchor.dataset.bbrTarget;
+      if (!target) return;
+      rendition?.display(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
+    };
+
+    win.addEventListener('click', activate, true);
+    win.addEventListener('touchend', activate, { capture: true, passive: false });
   }
 
   function installContentPagingGuards(contents) {
