@@ -436,6 +436,7 @@
     lastReaderSize = size;
     try {
       rendition.resize(size.width, size.height);
+      if (typeof rendition.spread === 'function') rendition.spread('none');
       if (settings.flow === 'paginated' && target) await rendition.display(target);
     } catch (error) {
       console.warn('Reader viewport sync skipped', error);
@@ -453,13 +454,14 @@
     const viewport = readerViewportSize();
     lastReaderSize = viewport;
     rendition = currentBook.renderTo(mount, {
-      width: '100%',
-      height: '100%',
-      manager: settings.flow === 'paginated' ? 'continuous' : 'default',
+      width: viewport.width,
+      height: viewport.height,
+      manager: 'default',
       spread: 'none',
       flow: settings.flow
     });
 
+    if (typeof rendition.spread === 'function') rendition.spread('none');
     rendition.hooks?.content?.register?.(installContentPagingGuards);
 
     Object.entries(THEME_RULES).forEach(([name, rules]) => rendition.themes.register(name, rules));
@@ -635,6 +637,7 @@
       rendition.themes.override('line-height', String(settings.lineHeight), true);
       rendition.themes.override('padding-left', '0px', true);
       rendition.themes.override('padding-right', '0px', true);
+      rendition.themes.override('max-width', '100%', true);
       configureReaderMount();
     }
     if (persist) saveSettings();
