@@ -370,7 +370,9 @@
     const root = doc.documentElement;
     const body = doc.body;
     [root, body].forEach((node) => {
-      node.style.setProperty('overflow-x', 'hidden', 'important');
+      // Do not hide EPUB.js' internal horizontal column overflow here.
+      // Pagination works by translating those columns inside the clipped outer mount.
+      node.style.removeProperty('overflow-x');
       node.style.setProperty('overscroll-behavior-x', 'none', 'important');
     });
 
@@ -482,7 +484,16 @@
     });
 
     for (const mark of currentRecord.highlights || []) attachHighlight(mark);
-    await rendition.display(target);
+    try {
+      await rendition.display(target);
+    } catch (error) {
+      if (!target) throw error;
+      console.warn('Saved reading position could not be restored; reopening from the start.', error);
+      currentRecord.cfi = null;
+      currentRecord.progress = 0;
+      await idbPut(currentRecord);
+      await rendition.display();
+    }
     els.viewer.focus({ preventScroll: true });
   }
 
