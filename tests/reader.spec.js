@@ -100,7 +100,7 @@ test('internal EPUB links stay inside the reader', async ({ page }) => {
   await importFixture(page);
   const appUrl = page.url();
   await page.frameLocator('#viewer iframe').getByRole('link', { name: 'Jump to Second Chapter' }).click();
-  await expect(page.frameLocator('#viewer iframe').getByText('Second Chapter')).toBeVisible();
+  await expect(page.frameLocator('#viewer iframe').getByRole('heading', { name: 'Second Chapter', exact: true })).toBeVisible();
   expect(page.url()).toBe(appUrl);
 });
 
