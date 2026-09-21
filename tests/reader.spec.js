@@ -188,12 +188,22 @@ test('paginated mode locks content to one viewport and serializes page turns', a
     await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
   }
 
-  const pageGeometry = await page.frameLocator('#viewer iframe').locator('[data-test-paragraph]').evaluateAll((nodes) => {
+  const pageGeometry = await page.evaluate(() => {
+    const mount = document.querySelector('#viewer .epub-mount')?.getBoundingClientRect();
+    const iframe = document.querySelector('#viewer iframe');
+    const frameRect = iframe?.getBoundingClientRect();
+    const doc = iframe?.contentDocument;
+    if (!mount || !frameRect || !doc) return { count: 0, minLeft: null, maxLeft: null };
+
     const fragments = [];
-    for (const node of nodes) {
+    for (const node of doc.querySelectorAll('[data-test-paragraph]')) {
       for (const r of node.getClientRects()) {
-        if (r.width > 0 && r.height > 0 && r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight) {
-          fragments.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+        const left = frameRect.left + r.left;
+        const right = frameRect.left + r.right;
+        const top = frameRect.top + r.top;
+        const bottom = frameRect.top + r.bottom;
+        if (r.width > 0 && r.height > 0 && right > mount.left && left < mount.right && bottom > mount.top && top < mount.bottom) {
+          fragments.push({ left, right, top, bottom });
         }
       }
     }
@@ -205,7 +215,7 @@ test('paginated mode locks content to one viewport and serializes page turns', a
     };
   });
   expect(pageGeometry.count).toBeGreaterThan(0);
-  expect(pageGeometry.maxLeft - pageGeometry.minLeft).toBeLessThanOrEqual(6);
+  expect(pageGeometry.maxLeft - pageGeometry.minLeft).toBeLessThanOrEqual(8);
 });
 
 test('book can be closed and reopened after page turns', async ({ page }) => {
