@@ -1,0 +1,13 @@
+{
+  "name": "bills-book-reader",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test tests/reader.spec.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "jszip": "^3.10.1"
+  }
+}
