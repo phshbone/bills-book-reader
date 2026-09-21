@@ -183,13 +183,29 @@ test('paginated mode locks content to one viewport and serializes page turns', a
   const afterPage = Number(after.split('/')[0].trim());
   expect(afterPage).toBe(beforePage + 1);
 
-  const visibleTextCount = await page.frameLocator('#viewer iframe').locator('[data-test-paragraph]').evaluateAll((nodes) =>
-    nodes.filter((node) => {
-      const r = node.getBoundingClientRect();
-      return r.width > 0 && r.height > 0 && r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight;
-    }).length
-  );
-  expect(visibleTextCount).toBeGreaterThan(0);
+  for (let i = 0; i < 3; i++) {
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
+  }
+
+  const pageGeometry = await page.frameLocator('#viewer iframe').locator('[data-test-paragraph]').evaluateAll((nodes) => {
+    const fragments = [];
+    for (const node of nodes) {
+      for (const r of node.getClientRects()) {
+        if (r.width > 0 && r.height > 0 && r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight) {
+          fragments.push({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+        }
+      }
+    }
+    const lefts = fragments.map((r) => r.left);
+    return {
+      count: fragments.length,
+      minLeft: lefts.length ? Math.min(...lefts) : null,
+      maxLeft: lefts.length ? Math.max(...lefts) : null
+    };
+  });
+  expect(pageGeometry.count).toBeGreaterThan(0);
+  expect(pageGeometry.maxLeft - pageGeometry.minLeft).toBeLessThanOrEqual(6);
 });
 
 test('book can be closed and reopened after page turns', async ({ page }) => {
