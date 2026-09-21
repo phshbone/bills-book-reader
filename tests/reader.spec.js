@@ -96,12 +96,20 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await expect(page.locator('#searchResults')).toContainText('copper lantern');
 });
 
-test('internal EPUB links stay inside the reader', async ({ page }) => {
+test('internal EPUB links stay inside the reader', async ({ page, browserName }) => {
   await importFixture(page);
   const appUrl = page.url();
   const chapterLink = page.frameLocator('#viewer iframe').first().getByRole('link', { name: 'Jump to Second Chapter' });
   await expect(chapterLink).toHaveAttribute('data-bbr-link-installed', 'true');
-  await chapterLink.click();
+
+  if (browserName === 'webkit') {
+    const box = await chapterLink.boundingBox();
+    expect(box).not.toBeNull();
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+  } else {
+    await chapterLink.click();
+  }
+
   await expect(page.locator('#readerChapterTitle')).toHaveText('Second Chapter');
   expect(page.url()).toBe(appUrl);
 });
