@@ -79,7 +79,7 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
 
   await page.getByRole('button', { name: 'Search in book' }).click();
   await page.locator('#bookSearchInput').fill('copper lantern');
-  await page.getByRole('button', { name: 'Search' }).click();
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(page.locator('#searchStatus')).toContainText('result');
   await expect(page.locator('#searchResults')).toContainText('copper lantern');
 });
