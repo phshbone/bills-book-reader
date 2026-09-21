@@ -411,17 +411,18 @@
       if (!target) continue;
       anchor.dataset.bbrLinkInstalled = 'true';
       anchor.dataset.bbrHref = rawHref;
-      // Remove native navigation entirely. WebKit can otherwise resolve even "#" against
-      // the iframe's EPUB path and request it from GitHub Pages.
-      anchor.removeAttribute('href');
-      anchor.setAttribute('role', 'link');
-      anchor.setAttribute('tabindex', '0');
+      // Keep a real link target so iOS/WebKit dispatches a normal anchor click, but point
+      // its native action at a non-navigating javascript URL. The parent-installed onclick
+      // then hands navigation back to EPUB.js.
+      anchor.setAttribute('href', 'javascript:void(0)');
       const activate = (event) => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
+        event?.preventDefault?.();
+        event?.stopImmediatePropagation?.();
         rendition?.display(target).catch((error) => console.warn('Internal EPUB link failed', target, error));
+        return false;
       };
-      anchor.addEventListener('click', activate, true);
+      anchor.onclick = activate;
+      anchor.addEventListener('touchend', activate, { capture: true, passive: false });
       anchor.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') activate(event);
       }, true);
