@@ -388,6 +388,30 @@
     }
   }
 
+  function installContentLinkHandling(contents) {
+    const doc = contents?.document;
+    if (!doc?.documentElement || doc.documentElement.dataset.bbrLinkHandlingInstalled === 'true') return;
+    doc.documentElement.dataset.bbrLinkHandlingInstalled = 'true';
+
+    for (const anchor of doc.querySelectorAll('a[href]')) {
+      const href = anchor.getAttribute('href')?.trim() || '';
+      if (/^https?:\/\//i.test(href)) {
+        anchor.setAttribute('target', '_blank');
+        anchor.setAttribute('rel', 'noopener noreferrer');
+      }
+    }
+
+    doc.addEventListener('click', (event) => {
+      const anchor = event.target?.closest?.('a[href]');
+      if (!anchor) return;
+      const href = anchor.getAttribute('href')?.trim() || '';
+      if (!/^https?:\/\//i.test(href)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      window.open(href, '_blank', 'noopener,noreferrer');
+    }, { capture: true });
+  }
+
   function recoverEscapedBookNavigation(view) {
     const iframe = view?.iframe;
     if (!iframe || iframe.dataset.bbrRecoveryInstalled === 'true') return;
@@ -550,6 +574,7 @@
     rendition.on('relocated', onRelocated);
     rendition.on('rendered', (section, view) => {
       installContentPagingGuards(view?.contents);
+      installContentLinkHandling(view?.contents);
       applyThemeToContents(view?.contents);
       recoverEscapedBookNavigation(view);
       const navItem = findNavForHref(section?.href);
@@ -733,15 +758,29 @@
   async function recreateRendition() {
     if (!currentBook || !currentRecord) return;
     const loc = currentLocation();
+    const exactCfi = loc?.start?.cfi || currentRecord.cfi || null;
     const snapshot = {
       ...currentRecord,
-      cfi: loc?.start?.cfi || currentRecord.cfi,
+      cfi: exactCfi,
       sectionHref: loc?.start?.href || currentRecord.sectionHref,
       sectionPage: Number(loc?.start?.displayed?.page) || currentRecord.sectionPage || 1
     };
     try { rendition?.destroy(); } catch {}
     rendition = null;
     await setupRendition();
+
+    // A CFI identifies the actual reading position independent of page geometry.
+    // Use it first when changing layout modes; chapter/page counts are not stable
+    // between paginated and scrolled rendering.
+    if (exactCfi) {
+      try {
+        await rendition.display(exactCfi);
+        await nextPaint();
+        if (hasVisibleRenditionContent()) return;
+      } catch (error) {
+        console.warn('Exact position restore failed after layout change.', error);
+      }
+    }
     await restoreReadingPosition(snapshot);
   }
 
