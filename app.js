@@ -608,7 +608,6 @@
     clearTimeout(saveTimer);
     clearTimeout(readerResizeTimer);
     pageTurnBusy = false;
-    renditionTouchStart = null;
     els.readerStage.classList.remove('page-turn-active', 'page-turn-next', 'page-turn-prev', 'page-turn-out', 'page-turn-in');
     pendingSelection = null;
     els.selectionToolbar.hidden = true;
