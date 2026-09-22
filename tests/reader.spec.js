@@ -237,6 +237,27 @@ test('horizontal swipe gestures turn paginated pages in both directions', async 
   await expect(page.locator('#locationText')).toHaveText(before);
 });
 
+test('touch-end fallback turns a page without cancelling touchmove', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', 'Headless WebKit cannot synthesize a genuine iPhone touch sequence.');
+  await importFixture(page);
+  await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
+
+  const before = await page.locator('#locationText').textContent();
+  await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
+    const start = new Event('touchstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(start, 'touches', { value: [{ clientX: 220, clientY: 220 }] });
+    Object.defineProperty(start, 'changedTouches', { value: [{ clientX: 220, clientY: 220 }] });
+    body.dispatchEvent(start);
+
+    const end = new Event('touchend', { bubbles: true, cancelable: true });
+    Object.defineProperty(end, 'touches', { value: [] });
+    Object.defineProperty(end, 'changedTouches', { value: [{ clientX: 196, clientY: 222 }] });
+    body.dispatchEvent(end);
+  });
+
+  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
+});
+
 test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {
   await importFixture(page);
   await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
