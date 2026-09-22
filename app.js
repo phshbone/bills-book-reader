@@ -415,6 +415,9 @@
 
     const root = doc.documentElement;
     const body = doc.body;
+    if (root.dataset.bbrPagingGuardsInstalled === 'true') return;
+    root.dataset.bbrPagingGuardsInstalled = 'true';
+
     [root, body].forEach((node) => {
       // Do not hide EPUB.js' internal horizontal column overflow here.
       // Pagination works by translating those columns inside the clipped outer mount.
