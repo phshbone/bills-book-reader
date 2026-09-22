@@ -155,33 +155,43 @@ test('library shell fits the active viewport without horizontal overflow', async
 
 
 
-test('horizontal swipe gestures turn paginated pages in both directions', async ({ page }) => {
+test('horizontal swipe gestures turn paginated pages in both directions', async ({ page, browserName }) => {
   await importFixture(page);
   await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
 
+  const dispatchSwipe = async (fromX, toX) => {
+    await page.frameLocator('#viewer iframe').locator('body').evaluate((body, args) => {
+      const doc = body.ownerDocument;
+      if (args.useTouch) {
+        const start = new Event('touchstart', { bubbles: true, cancelable: true });
+        Object.defineProperty(start, 'touches', { value: [{ clientX: args.fromX, clientY: 220 }] });
+        Object.defineProperty(start, 'changedTouches', { value: [{ clientX: args.fromX, clientY: 220 }] });
+        doc.dispatchEvent(start);
+
+        const end = new Event('touchend', { bubbles: true, cancelable: true });
+        Object.defineProperty(end, 'touches', { value: [] });
+        Object.defineProperty(end, 'changedTouches', { value: [{ clientX: args.toX, clientY: 222 }] });
+        doc.dispatchEvent(end);
+      } else {
+        doc.dispatchEvent(new PointerEvent('pointerdown', {
+          bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.fromX, clientY: 220
+        }));
+        doc.dispatchEvent(new PointerEvent('pointerup', {
+          bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.toX, clientY: 222
+        }));
+      }
+    }, { fromX, toX, useTouch: browserName === 'webkit' });
+  };
+
   const before = await page.locator('#locationText').textContent();
-  await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
-    const doc = body.ownerDocument;
-    doc.dispatchEvent(new PointerEvent('pointerdown', {
-      bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 280, clientY: 220
-    }));
-    doc.dispatchEvent(new PointerEvent('pointerup', {
-      bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 150, clientY: 222
-    }));
-  });
+  await dispatchSwipe(280, 150);
   await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
+  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
 
   const afterNext = await page.locator('#locationText').textContent();
-  await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
-    const doc = body.ownerDocument;
-    doc.dispatchEvent(new PointerEvent('pointerdown', {
-      bubbles: true, pointerId: 2, pointerType: 'touch', isPrimary: true, clientX: 150, clientY: 220
-    }));
-    doc.dispatchEvent(new PointerEvent('pointerup', {
-      bubbles: true, pointerId: 2, pointerType: 'touch', isPrimary: true, clientX: 285, clientY: 220
-    }));
-  });
+  await dispatchSwipe(150, 285);
   await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(afterNext);
+  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
   await expect(page.locator('#locationText')).toHaveText(before);
 });
 
