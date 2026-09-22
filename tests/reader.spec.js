@@ -74,9 +74,20 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await page.getByRole('button', { name: 'Close contents' }).click();
 
   await page.getByRole('button', { name: 'Reading appearance' }).click();
+  await page.getByRole('button', { name: /Night/ }).click();
+  await expect(page.locator('body')).toHaveAttribute('data-app-theme', 'night');
+  await expect.poll(() => page.frameLocator('#viewer iframe').locator('body').evaluate((body) => getComputedStyle(body).backgroundColor)).toBe('rgb(27, 30, 28)');
   await page.getByRole('button', { name: /Paper/ }).click();
   await expect(page.locator('body')).toHaveAttribute('data-app-theme', 'paper');
+  await expect.poll(() => page.frameLocator('#viewer iframe').locator('body').evaluate((body) => getComputedStyle(body).backgroundColor)).toBe('rgb(251, 250, 246)');
+  await page.getByRole('button', { name: 'Increase text size' }).click();
+  await expect(page.locator('#fontSizeValue')).toHaveText('105%');
+  await page.getByRole('button', { name: 'Decrease line spacing' }).click();
+  await expect(page.locator('#lineHeightValue')).toHaveText('1.5');
+  await page.getByRole('button', { name: 'Increase margins' }).click();
+  await expect(page.locator('#readerMarginValue')).toHaveText('6');
   await page.getByRole('button', { name: 'Close appearance' }).click();
+  await expect(page.frameLocator('#viewer iframe').getByText('First Light')).toBeVisible();
 
   await page.getByRole('button', { name: 'Add bookmark' }).click();
   await expect(page.getByText('Bookmark added')).toBeVisible();
@@ -91,6 +102,17 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await expect(page.locator('#searchResults')).toContainText('copper lantern');
 });
 
+
+test('escaped internal book URLs recover inside the reader', async ({ page }) => {
+  await importFixture(page);
+  const appUrl = page.url();
+  await page.frameLocator('#viewer iframe').locator('body').evaluate(() => {
+    window.location.href = '/OEBPS/chapter2.xhtml';
+  });
+  await expect(page.locator('#readerChapterTitle')).toHaveText('Second Chapter');
+  expect(page.url()).toBe(appUrl);
+  await expect(page.frameLocator('#viewer iframe').getByText('Second Chapter')).toBeVisible();
+});
 
 test('reading preferences persist across reloads', async ({ page }) => {
   await importFixture(page);
