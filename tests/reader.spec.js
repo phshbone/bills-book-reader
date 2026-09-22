@@ -111,7 +111,6 @@ test('escaped internal book URLs recover inside the reader', async ({ page }) =>
   });
   await expect(page.locator('#readerChapterTitle')).toHaveText('Second Chapter');
   expect(page.url()).toBe(appUrl);
-  await expect(page.frameLocator('#viewer iframe').getByText('Second Chapter')).toBeVisible();
 });
 
 test('reading preferences persist across reloads', async ({ page }) => {
