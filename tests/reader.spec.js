@@ -215,17 +215,35 @@ test('native EPUB snap handles an interior swipe without turning a tap', async (
 
   const dispatchTouch = async (fromX, toX) => {
     await page.frameLocator('#viewer iframe').locator('body').evaluate((body, args) => {
-      const fire = (type, touches, changedTouches = touches) => {
-        const event = new Event(type, { bubbles: true, cancelable: true });
-        Object.defineProperty(event, 'touches', { value: touches });
-        Object.defineProperty(event, 'changedTouches', { value: changedTouches });
-        body.dispatchEvent(event);
+      const makeTouch = (x, y) => new Touch({
+        identifier: 1,
+        target: body,
+        clientX: x,
+        clientY: y,
+        screenX: x,
+        screenY: y,
+        pageX: x,
+        pageY: y,
+        radiusX: 2,
+        radiusY: 2,
+        rotationAngle: 0,
+        force: 0.5
+      });
+      const fire = (type, touches, changedTouches) => {
+        body.dispatchEvent(new TouchEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          touches,
+          targetTouches: touches,
+          changedTouches
+        }));
       };
-      fire('touchstart', [{ screenX: args.fromX, screenY: 220, clientX: args.fromX, clientY: 220 }]);
-      if (args.fromX !== args.toX) {
-        fire('touchmove', [{ screenX: args.toX, screenY: 222, clientX: args.toX, clientY: 222 }]);
-      }
-      fire('touchend', [], [{ screenX: args.toX, screenY: 222, clientX: args.toX, clientY: 222 }]);
+      const start = makeTouch(args.fromX, 220);
+      const end = makeTouch(args.toX, 222);
+      fire('touchstart', [start], [start]);
+      if (args.fromX !== args.toX) fire('touchmove', [end], [end]);
+      fire('touchend', [], [end]);
     }, { fromX, toX });
   };
 
@@ -252,20 +270,20 @@ test('installs the WebKit iframe touch bridge without blocking touchmove', async
   const bridgeState = await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
     const doc = body.ownerDocument;
     const move = new Event('touchmove', { bubbles: true, cancelable: true });
-    const container = parent.document.querySelector('#viewer .epub-container');
     return {
       bodyGuardInstalled: doc.documentElement.dataset.bbrPagingGuardsInstalled,
       bodyTouchAction: getComputedStyle(body).touchAction,
       rootTouchAction: getComputedStyle(doc.documentElement).touchAction,
-      touchMoveAllowed: body.dispatchEvent(move),
-      snapScrolling: container?.style?.webkitOverflowScrolling || ''
+      touchMoveAllowed: body.dispatchEvent(move)
     };
   });
 
   expect(bridgeState.bodyGuardInstalled).toBe('true');
   expect([bridgeState.bodyTouchAction, bridgeState.rootTouchAction]).toContain('pan-y');
   expect(bridgeState.touchMoveAllowed).toBe(true);
-  expect(bridgeState.snapScrolling).toBe('touch');
+  await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-manager-paginated', 'true');
+  await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-native-snap', 'true');
+  await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-native-snap-touch', 'true');
 });
 
 test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {
