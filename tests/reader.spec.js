@@ -236,7 +236,8 @@ test('horizontal swipe gestures turn paginated pages in both directions', async 
   await expect(page.locator('#locationText')).toHaveText(before);
 });
 
-test('touch-end fallback turns a page without cancelling touchmove', async ({ page }) => {
+test('touch-end fallback turns a page without cancelling touchmove', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', 'Headless WebKit does not treat script-constructed TouchEvent data as a native finger gesture; the WebKit bridge itself is covered separately.');
   await importFixture(page);
   await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
 
