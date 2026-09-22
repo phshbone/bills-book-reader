@@ -29,7 +29,7 @@ async function makeEpub() {
     </package>`);
   zip.file('OEBPS/nav.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>TOC</title></head><body><nav epub:type="toc"><ol><li><a href="chapter1.xhtml">First Light</a></li><li><a href="chapter2.xhtml">Second Chapter</a></li></ol></nav></body></html>`);
   zip.file('OEBPS/chapter1.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>First Light</title></head><body><h1>First Light</h1><p>This is the first smoke test paragraph. The quick reader remembers this book locally.</p><p>Searchable phrase: copper lantern.</p>${longParagraphs}</body></html>`);
-  zip.file('OEBPS/chapter2.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Second Chapter</title></head><body><h1>Second Chapter</h1><p>This is the second chapter used to verify page navigation.</p></body></html>`);
+  zip.file('OEBPS/chapter2.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Second Chapter</title></head><body><h1>Second Chapter</h1><p>This is the second chapter used to verify page navigation.</p><p><a data-test-source-link="true" href="https://example.org/source-record">External source record</a></p></body></html>`);
   return zip.generateAsync({ type: 'nodebuffer', mimeType: 'application/epub+zip' });
 }
 
@@ -86,6 +86,9 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await expect(page.locator('#lineHeightValue')).toHaveText('1.5');
   await page.getByRole('button', { name: 'Increase margins' }).click();
   await expect(page.locator('#readerMarginValue')).toHaveText('6');
+  await page.locator('#readerBrightness').fill('70');
+  await expect(page.locator('#readerBrightnessValue')).toHaveText('70%');
+  await expect(page.locator('#viewer')).toHaveCSS('filter', 'brightness(0.7)');
   await page.getByRole('button', { name: 'Close appearance' }).click();
   await expect(page.frameLocator('#viewer iframe').getByText('First Light')).toBeVisible();
 
@@ -111,6 +114,59 @@ test('escaped internal book URLs recover inside the reader', async ({ page }) =>
   });
   await expect(page.locator('#readerChapterTitle')).toHaveText('Second Chapter');
   expect(page.url()).toBe(appUrl);
+});
+
+
+test('switching between page and scroll modes keeps the exact reading area', async ({ page }) => {
+  await importFixture(page);
+  await page.getByRole('button', { name: 'Next page' }).click();
+  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
+
+  const visibleParagraph = await page.frameLocator('#viewer iframe').locator('[data-test-paragraph]').evaluateAll((nodes) => {
+    const visible = nodes.find((node) => {
+      const r = node.getBoundingClientRect();
+      return r.width > 0 && r.height > 0 && r.right > 0 && r.left < innerWidth && r.bottom > 0 && r.top < innerHeight;
+    });
+    return visible?.getAttribute('data-test-paragraph') || null;
+  });
+  expect(visibleParagraph).not.toBeNull();
+
+  await page.getByRole('button', { name: 'Reading appearance' }).click();
+  await page.locator('#flowSelect').selectOption('scrolled-doc');
+  await expect(page.locator('#readerChapterTitle')).toHaveText('First Light');
+  await expect(page.frameLocator('#viewer iframe').locator(`[data-test-paragraph="${visibleParagraph}"]`)).toBeVisible();
+});
+
+test('external source links are prepared to leave the EPUB frame', async ({ page, browserName }) => {
+  await importFixture(page);
+  await page.getByRole('button', { name: 'Table of contents' }).click();
+  await page.getByRole('button', { name: 'Second Chapter' }).click();
+  await expect(page.locator('#readerChapterTitle')).toHaveText('Second Chapter');
+
+  const sourceLink = page.locator('#viewer iframe').last().contentFrame().locator('[data-test-source-link="true"]');
+  await expect(sourceLink).toHaveAttribute('target', '_blank');
+  await expect(sourceLink).toHaveAttribute('rel', /noopener/);
+
+  // Headless WebKit does not reliably surface a new external window to the
+  // parent-page stub. The target/rel assertions above still verify the
+  // standards-based iPhone path. Chromium additionally covers our click hook.
+  if (browserName === 'webkit') return;
+
+  await page.evaluate(() => {
+    window.__bbrOpenedSource = null;
+    window.open = (url) => {
+      window.__bbrOpenedSource = String(url);
+      return {};
+    };
+  });
+
+  await sourceLink.click();
+  await expect.poll(() => page.evaluate(() => window.__bbrOpenedSource)).toBe('https://example.org/source-record');
+});
+
+test('reader header uses the dark green visual anchor', async ({ page }) => {
+  await importFixture(page);
+  await expect(page.locator('#readerTopbar')).toHaveCSS('background-color', 'rgb(64, 88, 79)');
 });
 
 test('reading preferences persist across reloads', async ({ page }) => {
@@ -150,6 +206,36 @@ test('library shell fits the active viewport without horizontal overflow', async
   await expect(page.getByText('Bring your own books.')).toBeVisible();
 });
 
+
+
+test('horizontal swipe gestures turn paginated pages in both directions', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', 'Headless Playwright WebKit cannot synthesize native iPhone touch gestures; real-device swipe verification remains required.');
+  await importFixture(page);
+  await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
+
+  const dispatchSwipe = async (fromX, toX) => {
+    await page.frameLocator('#viewer iframe').locator('body').evaluate((body, args) => {
+      const doc = body.ownerDocument;
+      doc.dispatchEvent(new PointerEvent('pointerdown', {
+          bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.fromX, clientY: 220
+        }));
+      doc.dispatchEvent(new PointerEvent('pointerup', {
+        bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.toX, clientY: 222
+      }));
+    }, { fromX, toX });
+  };
+
+  const before = await page.locator('#locationText').textContent();
+  await dispatchSwipe(280, 150);
+  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
+  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
+
+  const afterNext = await page.locator('#locationText').textContent();
+  await dispatchSwipe(150, 285);
+  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(afterNext);
+  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
+  await expect(page.locator('#locationText')).toHaveText(before);
+});
 
 test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {
   await importFixture(page);

@@ -11,6 +11,7 @@
     fontSize: 100,
     lineHeight: 1.6,
     margin: 5,
+    brightness: 100,
     flow: 'paginated'
   };
 
@@ -49,6 +50,7 @@
     fontFamily: $('fontFamily'), fontSize: $('fontSize'), fontSizeValue: $('fontSizeValue'), fontSizeDown: $('fontSizeDown'), fontSizeUp: $('fontSizeUp'),
     lineHeight: $('lineHeight'), lineHeightValue: $('lineHeightValue'), lineHeightDown: $('lineHeightDown'), lineHeightUp: $('lineHeightUp'),
     readerMargin: $('readerMargin'), readerMarginValue: $('readerMarginValue'), readerMarginDown: $('readerMarginDown'), readerMarginUp: $('readerMarginUp'),
+    readerBrightness: $('readerBrightness'), readerBrightnessValue: $('readerBrightnessValue'),
     flowSelect: $('flowSelect'), themeGrid: $('themeGrid'),
     selectionToolbar: $('selectionToolbar'), highlightSelection: $('highlightSelection'), clearSelection: $('clearSelection'),
     toast: $('toast'), busyOverlay: $('busyOverlay'), busyText: $('busyText'), readerStage: $('readerStage')
@@ -65,6 +67,7 @@
   let toastTimer = null;
   let installPrompt = null;
   let pointerStart = null;
+  let renditionTouchStart = null;
   let locationsReady = false;
   let pageTurnBusy = false;
   let readerResizeTimer = null;
@@ -386,6 +389,29 @@
     }
   }
 
+  function installContentLinkHandling(contents) {
+    const doc = contents?.document;
+    if (!doc?.documentElement) return;
+
+    for (const anchor of doc.querySelectorAll('a[href]')) {
+      const href = anchor.getAttribute('href')?.trim() || '';
+      if (!/^https?:\/\//i.test(href)) continue;
+
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener noreferrer');
+      if (anchor.dataset.bbrExternalLinkInstalled === 'true') continue;
+      anchor.dataset.bbrExternalLinkInstalled = 'true';
+
+      // Bind directly to the link instead of relying on iframe-level event
+      // delegation; WebKit is more reliable with the direct user gesture.
+      anchor.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        window.open(href, '_blank', 'noopener,noreferrer');
+      });
+    }
+  }
+
   function recoverEscapedBookNavigation(view) {
     const iframe = view?.iframe;
     if (!iframe || iframe.dataset.bbrRecoveryInstalled === 'true') return;
@@ -413,6 +439,9 @@
 
     const root = doc.documentElement;
     const body = doc.body;
+    if (root.dataset.bbrPagingGuardsInstalled === 'true') return;
+    root.dataset.bbrPagingGuardsInstalled = 'true';
+
     [root, body].forEach((node) => {
       // Do not hide EPUB.js' internal horizontal column overflow here.
       // Pagination works by translating those columns inside the clipped outer mount.
@@ -429,25 +458,56 @@
     }
 
     let touchStart = null;
+    let pointerStartInBook = null;
     let horizontalIntent = false;
 
+    const attemptSwipe = (start, x, y) => {
+      if (!start || settings.flow !== 'paginated') return false;
+      const dx = x - start.x;
+      const dy = y - start.y;
+      const dt = Date.now() - start.t;
+      if (dt >= 800 || Math.abs(dx) < 32 || Math.abs(dx) <= Math.abs(dy) * 1.05) return false;
+      const selectedText = doc.getSelection?.()?.toString()?.trim();
+      if (selectedText) return false;
+      dx < 0 ? pageNext() : pagePrev();
+      return true;
+    };
+
+    // Pointer events are the primary path on current iPhone/iPad Safari.
+    // Capture listeners keep EPUB content from swallowing the gesture first.
+    doc.addEventListener('pointerdown', (event) => {
+      if (settings.flow !== 'paginated' || event.isPrimary === false) return;
+      if (event.pointerType && !['touch', 'pen'].includes(event.pointerType)) return;
+      pointerStartInBook = { x: event.clientX, y: event.clientY, t: Date.now() };
+    }, { passive: true, capture: true });
+
+    doc.addEventListener('pointerup', (event) => {
+      if (!pointerStartInBook) return;
+      const start = pointerStartInBook;
+      pointerStartInBook = null;
+      attemptSwipe(start, event.clientX, event.clientY);
+    }, { passive: true, capture: true });
+
+    doc.addEventListener('pointercancel', () => { pointerStartInBook = null; }, { passive: true, capture: true });
+
+    // Touch events remain as a fallback for older WebKit behavior.
     doc.addEventListener('touchstart', (event) => {
       if (settings.flow !== 'paginated' || event.touches.length !== 1) return;
       const touch = event.touches[0];
       touchStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
       horizontalIntent = false;
-    }, { passive: true });
+    }, { passive: true, capture: true });
 
     doc.addEventListener('touchmove', (event) => {
       if (!touchStart || settings.flow !== 'paginated' || event.touches.length !== 1) return;
       const touch = event.touches[0];
       const dx = touch.clientX - touchStart.x;
       const dy = touch.clientY - touchStart.y;
-      if (!horizontalIntent && Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy) * 1.2 && Date.now() - touchStart.t < 600) {
+      if (!horizontalIntent && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.05 && Date.now() - touchStart.t < 700) {
         horizontalIntent = true;
       }
       if (horizontalIntent && event.cancelable) event.preventDefault();
-    }, { passive: false });
+    }, { passive: false, capture: true });
 
     doc.addEventListener('touchend', (event) => {
       if (!touchStart || settings.flow !== 'paginated') {
@@ -455,19 +515,18 @@
         horizontalIntent = false;
         return;
       }
+      const start = touchStart;
       const touch = event.changedTouches?.[0];
-      if (!touch) return;
-      const dx = touch.clientX - touchStart.x;
-      const dy = touch.clientY - touchStart.y;
-      const dt = Date.now() - touchStart.t;
-      const selectedText = doc.getSelection?.()?.toString()?.trim();
       touchStart = null;
       horizontalIntent = false;
-      if (selectedText) return;
-      if (dt < 700 && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.15) {
-        dx < 0 ? pageNext() : pagePrev();
-      }
-    }, { passive: true });
+      if (!touch) return;
+      attemptSwipe(start, touch.clientX, touch.clientY);
+    }, { passive: true, capture: true });
+
+    doc.addEventListener('touchcancel', () => {
+      touchStart = null;
+      horizontalIntent = false;
+    }, { passive: true, capture: true });
   }
 
   async function syncReaderViewport(force = false) {
@@ -500,7 +559,8 @@
       height: '100%',
       manager: settings.flow === 'paginated' ? 'continuous' : 'default',
       spread: 'none',
-      flow: settings.flow
+      flow: settings.flow,
+      allowPopups: true
     });
 
     rendition.hooks?.content?.register?.(installContentPagingGuards);
@@ -509,8 +569,32 @@
     applyReaderSettings(false);
 
     rendition.on('relocated', onRelocated);
+    rendition.on('touchstart', (event, contents) => {
+      if (settings.flow !== 'paginated' || event?.touches?.length !== 1) return;
+      const touch = event.touches[0];
+      renditionTouchStart = { x: touch.clientX, y: touch.clientY, t: Date.now(), contents };
+    });
+    rendition.on('touchend', (event, contents) => {
+      if (!renditionTouchStart || settings.flow !== 'paginated') {
+        renditionTouchStart = null;
+        return;
+      }
+      const start = renditionTouchStart;
+      renditionTouchStart = null;
+      const touch = event?.changedTouches?.[0];
+      if (!touch) return;
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      const dt = Date.now() - start.t;
+      const selectedText = (contents || start.contents)?.document?.getSelection?.()?.toString()?.trim();
+      if (selectedText) return;
+      if (dt < 800 && Math.abs(dx) > 32 && Math.abs(dx) > Math.abs(dy) * 1.05) {
+        dx < 0 ? pageNext() : pagePrev();
+      }
+    });
     rendition.on('rendered', (section, view) => {
       installContentPagingGuards(view?.contents);
+      installContentLinkHandling(view?.contents);
       applyThemeToContents(view?.contents);
       recoverEscapedBookNavigation(view);
       const navItem = findNavForHref(section?.href);
@@ -593,6 +677,7 @@
     clearTimeout(saveTimer);
     clearTimeout(readerResizeTimer);
     pageTurnBusy = false;
+    renditionTouchStart = null;
     els.readerStage.classList.remove('page-turn-active', 'page-turn-next', 'page-turn-prev', 'page-turn-out', 'page-turn-in');
     pendingSelection = null;
     els.selectionToolbar.hidden = true;
@@ -671,6 +756,11 @@
     els.lineHeightValue.textContent = Number(settings.lineHeight).toFixed(2).replace(/0$/, '');
     els.readerMargin.value = settings.margin;
     els.readerMarginValue.textContent = settings.margin;
+    const brightness = Math.max(40, Math.min(100, Number(settings.brightness) || 100));
+    settings.brightness = brightness;
+    els.readerBrightness.value = String(brightness);
+    els.readerBrightnessValue.textContent = `${brightness}%`;
+    els.viewer.style.filter = `brightness(${brightness}%)`;
     els.flowSelect.value = settings.flow;
     document.querySelectorAll('.theme-chip').forEach((button) => button.classList.toggle('active', button.dataset.theme === settings.theme));
     if (rendition) {
@@ -689,15 +779,29 @@
   async function recreateRendition() {
     if (!currentBook || !currentRecord) return;
     const loc = currentLocation();
+    const exactCfi = loc?.start?.cfi || currentRecord.cfi || null;
     const snapshot = {
       ...currentRecord,
-      cfi: loc?.start?.cfi || currentRecord.cfi,
+      cfi: exactCfi,
       sectionHref: loc?.start?.href || currentRecord.sectionHref,
       sectionPage: Number(loc?.start?.displayed?.page) || currentRecord.sectionPage || 1
     };
     try { rendition?.destroy(); } catch {}
     rendition = null;
     await setupRendition();
+
+    // A CFI identifies the actual reading position independent of page geometry.
+    // Use it first when changing layout modes; chapter/page counts are not stable
+    // between paginated and scrolled rendering.
+    if (exactCfi) {
+      try {
+        await rendition.display(exactCfi);
+        await nextPaint();
+        if (hasVisibleRenditionContent()) return;
+      } catch (error) {
+        console.warn('Exact position restore failed after layout change.', error);
+      }
+    }
     await restoreReadingPosition(snapshot);
   }
 
@@ -936,6 +1040,10 @@
     els.lineHeightUp.addEventListener('click', () => adjustSetting('lineHeight', 0.1, 1.3, 2, 1));
     els.readerMarginDown.addEventListener('click', () => adjustSetting('margin', -1, 0, 12));
     els.readerMarginUp.addEventListener('click', () => adjustSetting('margin', 1, 0, 12));
+    els.readerBrightness.addEventListener('input', () => {
+      settings.brightness = Number(els.readerBrightness.value);
+      applyReaderSettings();
+    });
     els.flowSelect.addEventListener('change', async () => {
       settings.flow = els.flowSelect.value;
       saveSettings();
@@ -959,7 +1067,7 @@
       const dy = event.clientY - pointerStart.y;
       const dt = Date.now() - pointerStart.t;
       pointerStart = null;
-      if (dt < 700 && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.15) dx < 0 ? pageNext() : pagePrev();
+      if (dt < 800 && Math.abs(dx) > 32 && Math.abs(dx) > Math.abs(dy) * 1.05) dx < 0 ? pageNext() : pagePrev();
     });
 
     const handleViewportChange = () => scheduleReaderViewportSync();
