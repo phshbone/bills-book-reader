@@ -208,60 +208,47 @@ test('library shell fits the active viewport without horizontal overflow', async
 
 
 
-test('native EPUB snap handles an interior swipe without turning a tap', async ({ page, browserName }) => {
-  test.skip(browserName === 'webkit', 'Headless WebKit cannot synthesize a native iPhone finger swipe; snap activation is verified separately on WebKit.');
+test('native EPUB snap handles a real interior touch swipe without turning a tap', async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'Native interior swipe is injected through Chromium CDP; mobile WebKit snap readiness is verified structurally.');
   await importFixture(page);
   await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
+  await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-native-snap', 'true');
+  await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-native-snap-touch', 'true');
 
-  const dispatchTouch = async (fromX, toX) => {
-    await page.frameLocator('#viewer iframe').locator('body').evaluate((body, args) => {
-      const makeTouch = (x, y) => new Touch({
-        identifier: 1,
-        target: body,
-        clientX: x,
-        clientY: y,
-        screenX: x,
-        screenY: y,
-        pageX: x,
-        pageY: y,
-        radiusX: 2,
-        radiusY: 2,
-        rotationAngle: 0,
-        force: 0.5
-      });
-      const fire = (type, touches, changedTouches) => {
-        body.dispatchEvent(new TouchEvent(type, {
-          bubbles: true,
-          cancelable: true,
-          composed: true,
-          touches,
-          targetTouches: touches,
-          changedTouches
-        }));
-      };
-      const start = makeTouch(args.fromX, 220);
-      const end = makeTouch(args.toX, 222);
-      fire('touchstart', [start], [start]);
-      if (args.fromX !== args.toX) fire('touchmove', [end], [end]);
-      fire('touchend', [], [end]);
-    }, { fromX, toX });
+  const frame = await page.locator('#viewer iframe').first().boundingBox();
+  expect(frame).not.toBeNull();
+  const y = Math.round(frame.y + frame.height * 0.5);
+  const startX = Math.round(frame.x + frame.width * 0.68);
+  const endX = Math.round(frame.x + frame.width * 0.48);
+  const cdp = await context.newCDPSession(page);
+
+  const touch = async (type, x, includePoint = true) => {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: includePoint ? [{ x, y, radiusX: 2, radiusY: 2, force: 0.5, id: 1 }] : []
+    });
   };
 
   const before = await page.locator('#locationText').textContent();
 
-  await dispatchTouch(220, 220);
-  await page.waitForTimeout(220);
+  await touch('touchStart', startX);
+  await touch('touchEnd', startX, false);
+  await page.waitForTimeout(240);
   await expect(page.locator('#locationText')).toHaveText(before);
 
-  await dispatchTouch(240, 200);
+  await touch('touchStart', startX);
+  await touch('touchMove', endX);
+  await touch('touchEnd', endX, false);
   await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
 
   const afterNext = await page.locator('#locationText').textContent();
-  await dispatchTouch(200, 240);
+  await touch('touchStart', endX);
+  await touch('touchMove', startX);
+  await touch('touchEnd', startX, false);
   await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(afterNext);
 });
 
-test('installs the WebKit iframe touch bridge without blocking touchmove', async ({ page }) => {
+test('installs the WebKit iframe touch bridge without blocking touchmove', async ({ page }, testInfo) => {
   await importFixture(page);
 
   await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-touch-parent-ready', 'true');
@@ -283,7 +270,8 @@ test('installs the WebKit iframe touch bridge without blocking touchmove', async
   expect(bridgeState.touchMoveAllowed).toBe(true);
   await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-manager-paginated', 'true');
   await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-native-snap', 'true');
-  await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-native-snap-touch', 'true');
+  const expectedTouchSupport = testInfo.project.name === 'desktop-chromium' ? 'false' : 'true';
+  await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-native-snap-touch', expectedTouchSupport);
 });
 
 test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {
