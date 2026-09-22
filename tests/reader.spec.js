@@ -226,12 +226,12 @@ test('horizontal swipe gestures turn paginated pages in both directions', async 
   };
 
   const before = await page.locator('#locationText').textContent();
-  await dispatchSwipe(280, 150);
+  await dispatchSwipe(220, 196);
   await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
   await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
 
   const afterNext = await page.locator('#locationText').textContent();
-  await dispatchSwipe(150, 285);
+  await dispatchSwipe(196, 220);
   await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(afterNext);
   await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
   await expect(page.locator('#locationText')).toHaveText(before);
