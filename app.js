@@ -439,7 +439,7 @@
     const iframe = view?.iframe;
     if (!iframe) return;
 
-    if (settings.flow === 'paginated') iframe.style.setProperty('touch-action', 'pan-y');
+    if (settings.flow === 'paginated') iframe.style.setProperty('touch-action', 'pan-x');
     else iframe.style.removeProperty('touch-action');
 
     if (iframe.dataset.bbrTouchBridgeInstalled === 'true') return;
@@ -471,8 +471,8 @@
     });
 
     if (settings.flow === 'paginated') {
-      root.style.setProperty('touch-action', 'pan-y', 'important');
-      body.style.setProperty('touch-action', 'pan-y', 'important');
+      root.style.setProperty('touch-action', 'pan-x', 'important');
+      body.style.setProperty('touch-action', 'pan-x', 'important');
     } else {
       root.style.removeProperty('touch-action');
       body.style.removeProperty('touch-action');
