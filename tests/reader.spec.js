@@ -266,7 +266,7 @@ test('installs the WebKit iframe touch bridge without blocking touchmove', async
   });
 
   expect(bridgeState.bodyGuardInstalled).toBe('true');
-  expect([bridgeState.bodyTouchAction, bridgeState.rootTouchAction]).toContain('pan-y');
+  expect([bridgeState.bodyTouchAction, bridgeState.rootTouchAction]).toContain('pan-x');
   expect(bridgeState.touchMoveAllowed).toBe(true);
   await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-manager-paginated', 'true');
   await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-native-snap', 'true');
@@ -306,7 +306,7 @@ test('paginated mode locks content to one viewport and serializes page turns', a
       rootTouchAction: getComputedStyle(doc.documentElement).touchAction
     };
   });
-  expect([contentGuards.bodyTouchAction, contentGuards.rootTouchAction]).toContain('pan-y');
+  expect([contentGuards.bodyTouchAction, contentGuards.rootTouchAction]).toContain('pan-x');
 
   const expectedGutter = await page.evaluate(() => Math.round((window.visualViewport?.width || window.innerWidth) * 0.05));
   expect(Math.abs(shellGeometry.mountLeftGap - expectedGutter)).toBeLessThanOrEqual(2);
