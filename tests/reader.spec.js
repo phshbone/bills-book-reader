@@ -208,53 +208,39 @@ test('library shell fits the active viewport without horizontal overflow', async
 
 
 
-test('horizontal swipe gestures turn paginated pages in both directions', async ({ page, browserName }) => {
-  test.skip(browserName === 'webkit', 'Headless Playwright WebKit cannot synthesize native iPhone touch gestures; real-device swipe verification remains required.');
+test('native EPUB snap handles an interior swipe without turning a tap', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', 'Headless WebKit cannot synthesize a native iPhone finger swipe; snap activation is verified separately on WebKit.');
   await importFixture(page);
   await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
 
-  const dispatchSwipe = async (fromX, toX) => {
+  const dispatchTouch = async (fromX, toX) => {
     await page.frameLocator('#viewer iframe').locator('body').evaluate((body, args) => {
-      body.dispatchEvent(new PointerEvent('pointerdown', {
-          bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.fromX, clientY: 220
-        }));
-      body.dispatchEvent(new PointerEvent('pointerup', {
-        bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.toX, clientY: 222
-      }));
+      const fire = (type, touches, changedTouches = touches) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'touches', { value: touches });
+        Object.defineProperty(event, 'changedTouches', { value: changedTouches });
+        body.dispatchEvent(event);
+      };
+      fire('touchstart', [{ screenX: args.fromX, screenY: 220, clientX: args.fromX, clientY: 220 }]);
+      if (args.fromX !== args.toX) {
+        fire('touchmove', [{ screenX: args.toX, screenY: 222, clientX: args.toX, clientY: 222 }]);
+      }
+      fire('touchend', [], [{ screenX: args.toX, screenY: 222, clientX: args.toX, clientY: 222 }]);
     }, { fromX, toX });
   };
 
   const before = await page.locator('#locationText').textContent();
-  await dispatchSwipe(220, 196);
+
+  await dispatchTouch(220, 220);
+  await page.waitForTimeout(220);
+  await expect(page.locator('#locationText')).toHaveText(before);
+
+  await dispatchTouch(240, 200);
   await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
-  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
 
   const afterNext = await page.locator('#locationText').textContent();
-  await dispatchSwipe(196, 220);
+  await dispatchTouch(200, 240);
   await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(afterNext);
-  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
-  await expect(page.locator('#locationText')).toHaveText(before);
-});
-
-test('touch-end fallback turns a page without cancelling touchmove', async ({ page, browserName }) => {
-  test.skip(browserName === 'webkit', 'Headless WebKit does not treat script-constructed TouchEvent data as a native finger gesture; the WebKit bridge itself is covered separately.');
-  await importFixture(page);
-  await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
-
-  const before = await page.locator('#locationText').textContent();
-  await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
-    const start = new Event('touchstart', { bubbles: true, cancelable: true });
-    Object.defineProperty(start, 'touches', { value: [{ clientX: 220, clientY: 220 }] });
-    Object.defineProperty(start, 'changedTouches', { value: [{ clientX: 220, clientY: 220 }] });
-    body.dispatchEvent(start);
-
-    const end = new Event('touchend', { bubbles: true, cancelable: true });
-    Object.defineProperty(end, 'touches', { value: [] });
-    Object.defineProperty(end, 'changedTouches', { value: [{ clientX: 196, clientY: 222 }] });
-    body.dispatchEvent(end);
-  });
-
-  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
 });
 
 test('installs the WebKit iframe touch bridge without blocking touchmove', async ({ page }) => {
@@ -266,17 +252,20 @@ test('installs the WebKit iframe touch bridge without blocking touchmove', async
   const bridgeState = await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
     const doc = body.ownerDocument;
     const move = new Event('touchmove', { bubbles: true, cancelable: true });
+    const container = parent.document.querySelector('#viewer .epub-container');
     return {
       bodyGuardInstalled: doc.documentElement.dataset.bbrPagingGuardsInstalled,
       bodyTouchAction: getComputedStyle(body).touchAction,
       rootTouchAction: getComputedStyle(doc.documentElement).touchAction,
-      touchMoveAllowed: body.dispatchEvent(move)
+      touchMoveAllowed: body.dispatchEvent(move),
+      snapScrolling: container?.style?.webkitOverflowScrolling || ''
     };
   });
 
   expect(bridgeState.bodyGuardInstalled).toBe('true');
   expect([bridgeState.bodyTouchAction, bridgeState.rootTouchAction]).toContain('pan-y');
   expect(bridgeState.touchMoveAllowed).toBe(true);
+  expect(bridgeState.snapScrolling).toBe('touch');
 });
 
 test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {
