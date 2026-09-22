@@ -207,15 +207,41 @@ test('horizontal swipe gestures turn paginated pages in both directions', async 
     await page.frameLocator('#viewer iframe').locator('body').evaluate((body, args) => {
       const doc = body.ownerDocument;
       if (args.useTouch) {
-        const start = new Event('touchstart', { bubbles: true, cancelable: true });
-        Object.defineProperty(start, 'touches', { value: [{ clientX: args.fromX, clientY: 220 }] });
-        Object.defineProperty(start, 'changedTouches', { value: [{ clientX: args.fromX, clientY: 220 }] });
-        doc.dispatchEvent(start);
+        const startTouch = new Touch({
+          identifier: 1,
+          target: body,
+          clientX: args.fromX,
+          clientY: 220,
+          screenX: args.fromX,
+          screenY: 220,
+          pageX: args.fromX,
+          pageY: 220
+        });
+        doc.dispatchEvent(new TouchEvent('touchstart', {
+          bubbles: true,
+          cancelable: true,
+          touches: [startTouch],
+          targetTouches: [startTouch],
+          changedTouches: [startTouch]
+        }));
 
-        const end = new Event('touchend', { bubbles: true, cancelable: true });
-        Object.defineProperty(end, 'touches', { value: [] });
-        Object.defineProperty(end, 'changedTouches', { value: [{ clientX: args.toX, clientY: 222 }] });
-        doc.dispatchEvent(end);
+        const endTouch = new Touch({
+          identifier: 1,
+          target: body,
+          clientX: args.toX,
+          clientY: 222,
+          screenX: args.toX,
+          screenY: 222,
+          pageX: args.toX,
+          pageY: 222
+        });
+        doc.dispatchEvent(new TouchEvent('touchend', {
+          bubbles: true,
+          cancelable: true,
+          touches: [],
+          targetTouches: [],
+          changedTouches: [endTouch]
+        }));
       } else {
         doc.dispatchEvent(new PointerEvent('pointerdown', {
           bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.fromX, clientY: 220
