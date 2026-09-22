@@ -46,8 +46,10 @@
     marksButton: $('marksButton'), tocPanel: $('tocPanel'), tocList: $('tocList'), searchPanel: $('searchPanel'), appearancePanel: $('appearancePanel'), bookmarkPanel: $('bookmarkPanel'),
     bookSearchForm: $('bookSearchForm'), bookSearchInput: $('bookSearchInput'), searchStatus: $('searchStatus'), searchResults: $('searchResults'),
     bookmarkList: $('bookmarkList'), highlightList: $('highlightList'), progressText: $('progressText'), progressSlider: $('progressSlider'), locationText: $('locationText'),
-    fontFamily: $('fontFamily'), fontSize: $('fontSize'), fontSizeValue: $('fontSizeValue'), lineHeight: $('lineHeight'), lineHeightValue: $('lineHeightValue'),
-    readerMargin: $('readerMargin'), readerMarginValue: $('readerMarginValue'), flowSelect: $('flowSelect'), themeGrid: $('themeGrid'),
+    fontFamily: $('fontFamily'), fontSize: $('fontSize'), fontSizeValue: $('fontSizeValue'), fontSizeDown: $('fontSizeDown'), fontSizeUp: $('fontSizeUp'),
+    lineHeight: $('lineHeight'), lineHeightValue: $('lineHeightValue'), lineHeightDown: $('lineHeightDown'), lineHeightUp: $('lineHeightUp'),
+    readerMargin: $('readerMargin'), readerMarginValue: $('readerMarginValue'), readerMarginDown: $('readerMarginDown'), readerMarginUp: $('readerMarginUp'),
+    flowSelect: $('flowSelect'), themeGrid: $('themeGrid'),
     selectionToolbar: $('selectionToolbar'), highlightSelection: $('highlightSelection'), clearSelection: $('clearSelection'),
     toast: $('toast'), busyOverlay: $('busyOverlay'), busyText: $('busyText'), readerStage: $('readerStage')
   };
@@ -364,6 +366,47 @@
     return mount;
   }
 
+  const THEME_PALETTE = {
+    eink: { text: '#20211e', background: '#eeece4', link: '#40584f' },
+    paper: { text: '#1e211e', background: '#fbfaf6', link: '#405c51' },
+    sepia: { text: '#3d3327', background: '#efe1c5', link: '#6a5b3f' },
+    night: { text: '#e7e4db', background: '#1b1e1c', link: '#b5c9be' }
+  };
+
+  function applyThemeToContents(contents) {
+    const doc = contents?.document;
+    if (!doc?.documentElement || !doc.body) return;
+    const palette = THEME_PALETTE[settings.theme] || THEME_PALETTE.eink;
+    for (const node of [doc.documentElement, doc.body]) {
+      node.style.setProperty('background-color', palette.background, 'important');
+      node.style.setProperty('color', palette.text, 'important');
+    }
+    for (const anchor of doc.querySelectorAll('a')) {
+      anchor.style.setProperty('color', palette.link, 'important');
+    }
+  }
+
+  function recoverEscapedBookNavigation(view) {
+    const iframe = view?.iframe;
+    if (!iframe || iframe.dataset.bbrRecoveryInstalled === 'true') return;
+    iframe.dataset.bbrRecoveryInstalled = 'true';
+    iframe.addEventListener('load', () => {
+      try {
+        const href = iframe.contentWindow?.location?.href || '';
+        if (!/^https?:/i.test(href)) return;
+        const url = new URL(href);
+        const path = decodeURIComponent(url.pathname);
+        const match = currentBook?.spine?.spineItems?.find((section) => {
+          const sectionHref = decodeURIComponent(section?.href || '');
+          return sectionHref && (path.endsWith('/' + sectionHref) || path.endsWith(sectionHref));
+        });
+        if (!match) return;
+        const target = match.href + (url.hash || '');
+        setTimeout(() => rendition?.display(target).catch((error) => console.warn('Recovered EPUB link failed', target, error)), 0);
+      } catch {}
+    });
+  }
+
   function installContentPagingGuards(contents) {
     const doc = contents?.document;
     if (!doc?.documentElement || !doc.body) return;
@@ -421,7 +464,7 @@
       touchStart = null;
       horizontalIntent = false;
       if (selectedText) return;
-      if (dt < 700 && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.3) {
+      if (dt < 700 && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.15) {
         dx < 0 ? pageNext() : pagePrev();
       }
     }, { passive: true });
@@ -468,6 +511,8 @@
     rendition.on('relocated', onRelocated);
     rendition.on('rendered', (section, view) => {
       installContentPagingGuards(view?.contents);
+      applyThemeToContents(view?.contents);
+      recoverEscapedBookNavigation(view);
       const navItem = findNavForHref(section?.href);
       if (navItem) els.readerChapterTitle.textContent = navItem.label.trim();
     });
@@ -636,6 +681,7 @@
       rendition.themes.override('padding-left', '0px', true);
       rendition.themes.override('padding-right', '0px', true);
       configureReaderMount();
+      for (const contents of rendition.getContents?.() || []) applyThemeToContents(contents);
     }
     if (persist) saveSettings();
   }
@@ -686,6 +732,7 @@
 
   function closePanels() {
     [els.tocPanel, els.searchPanel, els.appearancePanel, els.bookmarkPanel].forEach((p) => { p.hidden = true; });
+    if (rendition && !els.readerView.hidden) scheduleReaderViewportSync(true);
   }
 
   async function searchBook(query) {
@@ -866,21 +913,29 @@
         attachHighlight(mark);
       });
     });
-    els.fontFamily.addEventListener('change', () => { settings.fontFamily = els.fontFamily.value; applyReaderSettings(); });
-    els.fontSize.addEventListener('input', () => { settings.fontSize = Number(els.fontSize.value); applyReaderSettings(); });
-    els.lineHeight.addEventListener('input', () => { settings.lineHeight = Number(els.lineHeight.value); applyReaderSettings(); });
-    els.readerMargin.addEventListener('input', async () => {
-      settings.margin = Number(els.readerMargin.value);
+    els.fontFamily.addEventListener('change', () => { settings.fontFamily = els.fontFamily.value; applyReaderSettings(); scheduleReaderViewportSync(true); });
+
+    const adjustSetting = async (key, delta, min, max, precision = 0) => {
+      const factor = 10 ** precision;
+      settings[key] = Math.min(max, Math.max(min, Math.round((Number(settings[key]) + delta) * factor) / factor));
       applyReaderSettings();
-      if (rendition) {
+      if (key === 'margin') {
         const target = currentLocation()?.start?.cfi || currentRecord?.cfi;
         const mount = configureReaderMount();
         const rect = mount.getBoundingClientRect();
         lastReaderSize = { width: Math.max(1, Math.floor(rect.width)), height: Math.max(1, Math.floor(rect.height)) };
-        rendition.resize(lastReaderSize.width, lastReaderSize.height);
-        if (settings.flow === 'paginated' && target) await rendition.display(target);
+        rendition?.resize(lastReaderSize.width, lastReaderSize.height);
+        if (rendition && settings.flow === 'paginated' && target) await rendition.display(target);
+      } else {
+        scheduleReaderViewportSync(true);
       }
-    });
+    };
+    els.fontSizeDown.addEventListener('click', () => adjustSetting('fontSize', -5, 80, 160));
+    els.fontSizeUp.addEventListener('click', () => adjustSetting('fontSize', 5, 80, 160));
+    els.lineHeightDown.addEventListener('click', () => adjustSetting('lineHeight', -0.1, 1.3, 2, 1));
+    els.lineHeightUp.addEventListener('click', () => adjustSetting('lineHeight', 0.1, 1.3, 2, 1));
+    els.readerMarginDown.addEventListener('click', () => adjustSetting('margin', -1, 0, 12));
+    els.readerMarginUp.addEventListener('click', () => adjustSetting('margin', 1, 0, 12));
     els.flowSelect.addEventListener('change', async () => {
       settings.flow = els.flowSelect.value;
       saveSettings();
@@ -904,7 +959,7 @@
       const dy = event.clientY - pointerStart.y;
       const dt = Date.now() - pointerStart.t;
       pointerStart = null;
-      if (dt < 700 && Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.3) dx < 0 ? pageNext() : pagePrev();
+      if (dt < 700 && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.15) dx < 0 ? pageNext() : pagePrev();
     });
 
     const handleViewportChange = () => scheduleReaderViewportSync();
