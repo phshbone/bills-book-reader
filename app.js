@@ -460,7 +460,6 @@
     let touchStart = null;
     let pointerStartInBook = null;
     let horizontalIntent = false;
-    let lastSwipeAt = 0;
 
     const attemptSwipe = (start, x, y) => {
       if (!start || settings.flow !== 'paginated') return false;
@@ -470,9 +469,6 @@
       if (dt >= 800 || Math.abs(dx) < 32 || Math.abs(dx) <= Math.abs(dy) * 1.05) return false;
       const selectedText = doc.getSelection?.()?.toString()?.trim();
       if (selectedText) return false;
-      const now = Date.now();
-      if (now - lastSwipeAt < 450) return false;
-      lastSwipeAt = now;
       dx < 0 ? pageNext() : pagePrev();
       return true;
     };
