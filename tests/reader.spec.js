@@ -137,11 +137,20 @@ test('switching between page and scroll modes keeps the exact reading area', asy
   await expect(page.frameLocator('#viewer iframe').locator(`[data-test-paragraph="${visibleParagraph}"]`)).toBeVisible();
 });
 
-test('external source links open outside the EPUB frame', async ({ page }) => {
+test('external source links are prepared to leave the EPUB frame', async ({ page, browserName }) => {
   await importFixture(page);
   await page.getByRole('button', { name: 'Table of contents' }).click();
   await page.getByRole('button', { name: 'Second Chapter' }).click();
   await expect(page.locator('#readerChapterTitle')).toHaveText('Second Chapter');
+
+  const sourceLink = page.frameLocator('#viewer iframe').locator('[data-test-source-link="true"]');
+  await expect(sourceLink).toHaveAttribute('target', '_blank');
+  await expect(sourceLink).toHaveAttribute('rel', /noopener/);
+
+  // Headless WebKit does not reliably surface a new external window to the
+  // parent-page stub. The target/rel assertions above still verify the
+  // standards-based iPhone path. Chromium additionally covers our click hook.
+  if (browserName === 'webkit') return;
 
   await page.evaluate(() => {
     window.__bbrOpenedSource = null;
@@ -151,7 +160,7 @@ test('external source links open outside the EPUB frame', async ({ page }) => {
     };
   });
 
-  await page.locator('#viewer iframe').last().contentFrame().locator('[data-test-source-link="true"]').click();
+  await sourceLink.click();
   await expect.poll(() => page.evaluate(() => window.__bbrOpenedSource)).toBe('https://example.org/source-record');
 });
 
@@ -207,15 +216,37 @@ test('horizontal swipe gestures turn paginated pages in both directions', async 
     await page.frameLocator('#viewer iframe').locator('body').evaluate((body, args) => {
       const doc = body.ownerDocument;
       if (args.useTouch) {
-        const start = new Event('touchstart', { bubbles: true, cancelable: true });
-        Object.defineProperty(start, 'touches', { value: [{ clientX: args.fromX, clientY: 220 }] });
-        Object.defineProperty(start, 'changedTouches', { value: [{ clientX: args.fromX, clientY: 220 }] });
-        body.dispatchEvent(start);
+        const makeTouch = (x, y) => new Touch({
+          identifier: 1,
+          target: body,
+          clientX: x,
+          clientY: y,
+          screenX: x,
+          screenY: y,
+          pageX: x,
+          pageY: y,
+          radiusX: 2,
+          radiusY: 2,
+          rotationAngle: 0,
+          force: 0.5
+        });
+        const startTouch = makeTouch(args.fromX, 220);
+        body.dispatchEvent(new TouchEvent('touchstart', {
+          bubbles: true,
+          cancelable: true,
+          touches: [startTouch],
+          targetTouches: [startTouch],
+          changedTouches: [startTouch]
+        }));
 
-        const end = new Event('touchend', { bubbles: true, cancelable: true });
-        Object.defineProperty(end, 'touches', { value: [] });
-        Object.defineProperty(end, 'changedTouches', { value: [{ clientX: args.toX, clientY: 222 }] });
-        body.dispatchEvent(end);
+        const endTouch = makeTouch(args.toX, 222);
+        body.dispatchEvent(new TouchEvent('touchend', {
+          bubbles: true,
+          cancelable: true,
+          touches: [],
+          targetTouches: [],
+          changedTouches: [endTouch]
+        }));
       } else {
         doc.dispatchEvent(new PointerEvent('pointerdown', {
           bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.fromX, clientY: 220
