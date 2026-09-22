@@ -139,19 +139,34 @@
             </select>
           </div>
 
-          <div class="setting-block range-setting">
-            <label for="fontSize">Text size <output id="fontSizeValue">100%</output></label>
-            <input id="fontSize" type="range" min="80" max="160" step="5" value="100">
+          <div class="setting-block stepper-setting">
+            <span class="setting-label">Text size</span>
+            <div class="stepper-control">
+              <button id="fontSizeDown" class="step-button" type="button" aria-label="Decrease text size">−</button>
+              <output id="fontSizeValue">100%</output>
+              <button id="fontSizeUp" class="step-button" type="button" aria-label="Increase text size">+</button>
+            </div>
+            <input id="fontSize" type="hidden" value="100">
           </div>
 
-          <div class="setting-block range-setting">
-            <label for="lineHeight">Line spacing <output id="lineHeightValue">1.6</output></label>
-            <input id="lineHeight" type="range" min="1.3" max="2" step="0.05" value="1.6">
+          <div class="setting-block stepper-setting">
+            <span class="setting-label">Line spacing</span>
+            <div class="stepper-control">
+              <button id="lineHeightDown" class="step-button" type="button" aria-label="Decrease line spacing">−</button>
+              <output id="lineHeightValue">1.6</output>
+              <button id="lineHeightUp" class="step-button" type="button" aria-label="Increase line spacing">+</button>
+            </div>
+            <input id="lineHeight" type="hidden" value="1.6">
           </div>
 
-          <div class="setting-block range-setting">
-            <label for="readerMargin">Margins <output id="readerMarginValue">5</output></label>
-            <input id="readerMargin" type="range" min="0" max="12" step="1" value="5">
+          <div class="setting-block stepper-setting">
+            <span class="setting-label">Margins</span>
+            <div class="stepper-control">
+              <button id="readerMarginDown" class="step-button" type="button" aria-label="Decrease margins">−</button>
+              <output id="readerMarginValue">5</output>
+              <button id="readerMarginUp" class="step-button" type="button" aria-label="Increase margins">+</button>
+            </div>
+            <input id="readerMargin" type="hidden" value="5">
           </div>
 
           <div class="setting-block split-setting">
