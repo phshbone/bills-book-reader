@@ -67,7 +67,9 @@ body[data-app-theme="paper"] { --shell:#ece9e1; --panel:#ffffff; --paper:#fbfaf6
 .primary-button { display:inline-flex; align-items:center; justify-content:center; padding: 0 18px; color: #f8f7f1; background: var(--accent-strong); border-color: var(--accent-strong); font-weight: 700; text-decoration:none; cursor:pointer; }
 .primary-button:hover { filter: brightness(1.05); }
 .quiet-button { padding: 0 15px; }
-.icon-button { width: 42px; min-width:42px; height:42px; display:grid; place-items:center; padding:0; font-weight:700; }
+.icon-button { width: 42px; min-width:42px; height:42px; display:grid; place-items:center; padding:0; font-weight:700; font-size:18px; line-height:1; }
+.reader-actions .icon-button { font-size:20px; }
+#appearanceButton { font-size:16px; letter-spacing:-.06em; }
 .icon-button:hover, .quiet-button:hover, .theme-chip:hover { border-color: var(--accent); }
 
 .library-view { padding: clamp(20px, 5vw, 52px) clamp(16px, 5vw, 56px) 72px; max-width: 1500px; margin: 0 auto; }
@@ -153,6 +155,7 @@ body[data-app-theme="paper"] { --shell:#ece9e1; --panel:#ffffff; --paper:#fbfaf6
 .setting-block > label, .setting-label { display:flex; justify-content:space-between; gap:10px; font-size:13px; font-weight:700; margin-bottom:10px; }
 .setting-block .select-control { width:100%; border-radius:10px; background:var(--paper); }
 .range-setting input { width:100%; accent-color:var(--accent-strong); }
+.setting-help { margin:8px 0 0; color:var(--muted); font-size:11px; line-height:1.4; }
 .stepper-setting { display:flex; align-items:center; justify-content:space-between; gap:14px; }
 .stepper-control { display:grid; grid-template-columns:48px minmax(64px,auto) 48px; align-items:center; gap:10px; }
 .stepper-control output { min-width:64px; text-align:center; font-weight:800; font-variant-numeric:tabular-nums; }
@@ -194,7 +197,8 @@ body[data-app-theme="paper"] { --shell:#ece9e1; --panel:#ffffff; --paper:#fbfaf6
   .library-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); gap:22px 16px; }
   .reader-topbar { gap:6px; padding-left:8px; padding-right:8px; }
   .reader-actions { gap:3px; }
-  .reader-actions .icon-button, #backToLibrary { width:36px; min-width:36px; height:36px; font-size:12px; }
+  .reader-actions .icon-button, #backToLibrary { width:36px; min-width:36px; height:36px; font-size:19px; line-height:1; }
+  #appearanceButton { font-size:15px; }
   .reader-title-wrap strong { max-width:30vw; font-size:13px; }
   .reader-title-wrap span { max-width:30vw; }
   .page-turn { width:34px; height:58px; opacity:.18; }
