@@ -8,7 +8,6 @@
   const SWIPE_MIN_X = 18;
   const SWIPE_MAX_MS = 1000;
   const SWIPE_AXIS_RATIO = 0.8;
-  const SWIPE_INTENT_X = 6;
   const DEFAULT_SETTINGS = {
     theme: 'eink',
     fontFamily: "Georgia, 'Times New Roman', serif",
@@ -463,7 +462,6 @@
 
     let touchStart = null;
     let pointerStartInBook = null;
-    let horizontalIntent = false;
 
     const attemptSwipe = (start, x, y) => {
       if (!start || settings.flow !== 'paginated') return false;
@@ -494,42 +492,29 @@
 
     doc.addEventListener('pointercancel', () => { pointerStartInBook = null; }, { passive: true, capture: true });
 
-    // Touch events remain as a fallback for older WebKit behavior.
+    // iPhone/iPad fallback: do not cancel touchmove. Safari can terminate the
+    // gesture when a page reader intercepts movement too early. Record where
+    // the finger starts and decide only when it lifts.
     doc.addEventListener('touchstart', (event) => {
       if (settings.flow !== 'paginated' || event.touches.length !== 1) return;
       const touch = event.touches[0];
       touchStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
-      horizontalIntent = false;
     }, { passive: true, capture: true });
-
-    doc.addEventListener('touchmove', (event) => {
-      if (!touchStart || settings.flow !== 'paginated' || event.touches.length !== 1) return;
-      const touch = event.touches[0];
-      const dx = touch.clientX - touchStart.x;
-      const dy = touch.clientY - touchStart.y;
-      if (!horizontalIntent && Math.abs(dx) > SWIPE_INTENT_X && Math.abs(dx) > Math.abs(dy) * SWIPE_AXIS_RATIO && Date.now() - touchStart.t < SWIPE_MAX_MS) {
-        horizontalIntent = true;
-      }
-      if (horizontalIntent && event.cancelable) event.preventDefault();
-    }, { passive: false, capture: true });
 
     doc.addEventListener('touchend', (event) => {
       if (!touchStart || settings.flow !== 'paginated') {
         touchStart = null;
-        horizontalIntent = false;
         return;
       }
       const start = touchStart;
       const touch = event.changedTouches?.[0];
       touchStart = null;
-      horizontalIntent = false;
       if (!touch) return;
       attemptSwipe(start, touch.clientX, touch.clientY);
     }, { passive: true, capture: true });
 
     doc.addEventListener('touchcancel', () => {
       touchStart = null;
-      horizontalIntent = false;
     }, { passive: true, capture: true });
   }
 
