@@ -5,6 +5,10 @@
   const DB_VERSION = 1;
   const BOOK_STORE = 'books';
   const SETTINGS_KEY = 'bbr-settings-v1';
+  const SWIPE_MIN_X = 18;
+  const SWIPE_MAX_MS = 1000;
+  const SWIPE_AXIS_RATIO = 0.8;
+  const SWIPE_INTENT_X = 6;
   const DEFAULT_SETTINGS = {
     theme: 'eink',
     fontFamily: "Georgia, 'Times New Roman', serif",
@@ -466,7 +470,7 @@
       const dx = x - start.x;
       const dy = y - start.y;
       const dt = Date.now() - start.t;
-      if (dt >= 800 || Math.abs(dx) < 32 || Math.abs(dx) <= Math.abs(dy) * 1.05) return false;
+      if (dt >= SWIPE_MAX_MS || Math.abs(dx) < SWIPE_MIN_X || Math.abs(dx) <= Math.abs(dy) * SWIPE_AXIS_RATIO) return false;
       const selectedText = doc.getSelection?.()?.toString()?.trim();
       if (selectedText) return false;
       dx < 0 ? pageNext() : pagePrev();
@@ -503,7 +507,7 @@
       const touch = event.touches[0];
       const dx = touch.clientX - touchStart.x;
       const dy = touch.clientY - touchStart.y;
-      if (!horizontalIntent && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.05 && Date.now() - touchStart.t < 700) {
+      if (!horizontalIntent && Math.abs(dx) > SWIPE_INTENT_X && Math.abs(dx) > Math.abs(dy) * SWIPE_AXIS_RATIO && Date.now() - touchStart.t < SWIPE_MAX_MS) {
         horizontalIntent = true;
       }
       if (horizontalIntent && event.cancelable) event.preventDefault();
@@ -588,7 +592,7 @@
       const dt = Date.now() - start.t;
       const selectedText = (contents || start.contents)?.document?.getSelection?.()?.toString()?.trim();
       if (selectedText) return;
-      if (dt < 800 && Math.abs(dx) > 32 && Math.abs(dx) > Math.abs(dy) * 1.05) {
+      if (dt < SWIPE_MAX_MS && Math.abs(dx) >= SWIPE_MIN_X && Math.abs(dx) > Math.abs(dy) * SWIPE_AXIS_RATIO) {
         dx < 0 ? pageNext() : pagePrev();
       }
     });
@@ -1067,7 +1071,7 @@
       const dy = event.clientY - pointerStart.y;
       const dt = Date.now() - pointerStart.t;
       pointerStart = null;
-      if (dt < 800 && Math.abs(dx) > 32 && Math.abs(dx) > Math.abs(dy) * 1.05) dx < 0 ? pageNext() : pagePrev();
+      if (dt < SWIPE_MAX_MS && Math.abs(dx) >= SWIPE_MIN_X && Math.abs(dx) > Math.abs(dy) * SWIPE_AXIS_RATIO) dx < 0 ? pageNext() : pagePrev();
     });
 
     const handleViewportChange = () => scheduleReaderViewportSync();
