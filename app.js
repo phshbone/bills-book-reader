@@ -8,6 +8,13 @@
   const SWIPE_MIN_X = 18;
   const SWIPE_MAX_MS = 1000;
   const SWIPE_AXIS_RATIO = 0.8;
+  const FRAME_GESTURE_TYPE = 'bbr-epub-swipe';
+  const FRAME_GESTURE_TOKEN = (() => {
+    const bytes = new Uint8Array(16);
+    if (globalThis.crypto?.getRandomValues) crypto.getRandomValues(bytes);
+    else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  })();
   const DEFAULT_SETTINGS = {
     theme: 'eink',
     fontFamily: "Georgia, 'Times New Roman', serif",
@@ -70,7 +77,6 @@
   let toastTimer = null;
   let installPrompt = null;
   let pointerStart = null;
-  let renditionTouchStart = null;
   let locationsReady = false;
   let pageTurnBusy = false;
   let readerResizeTimer = null;
@@ -436,11 +442,128 @@
     });
   }
 
+  function allowNonceInPolicy(policy, nonce) {
+    const directives = String(policy || '').split(';').map((part) => part.trim()).filter(Boolean);
+    const patchDirective = (name) => {
+      const index = directives.findIndex((part) => part.toLowerCase().startsWith(name + ' ') || part.toLowerCase() === name);
+      if (index >= 0) {
+        const tokens = directives[index].split(/\s+/).filter((token, tokenIndex) => tokenIndex === 0 || token.toLowerCase() !== "'none'");
+        if (!tokens.includes(`'nonce-${nonce}'`)) tokens.push(`'nonce-${nonce}'`);
+        directives[index] = tokens.join(' ');
+      } else {
+        directives.push(`${name} 'nonce-${nonce}'`);
+      }
+    };
+    patchDirective('script-src');
+    const hasScriptElem = directives.some((part) => {
+      const lower = part.toLowerCase();
+      return lower === 'script-src-elem' || lower.startsWith('script-src-elem ');
+    });
+    if (hasScriptElem) patchDirective('script-src-elem');
+    return directives.join('; ');
+  }
+
+  function secureSerializedBookFrame(output, section) {
+    try {
+      let doc = new DOMParser().parseFromString(output, 'application/xhtml+xml');
+      if (doc.querySelector('parsererror')) doc = new DOMParser().parseFromString(output, 'text/html');
+
+      for (const node of Array.from(doc.querySelectorAll('script,iframe,frame,frameset,object,embed,applet'))) node.remove();
+      for (const meta of Array.from(doc.querySelectorAll('meta[http-equiv]'))) {
+        const equiv = (meta.getAttribute('http-equiv') || '').trim().toLowerCase();
+        if (equiv === 'refresh') meta.remove();
+        if (equiv === 'content-security-policy') {
+          meta.setAttribute('content', allowNonceInPolicy(meta.getAttribute('content'), FRAME_GESTURE_TOKEN));
+        }
+      }
+
+      for (const node of Array.from(doc.querySelectorAll('*'))) {
+        for (const attr of Array.from(node.attributes || [])) {
+          const name = attr.name.toLowerCase();
+          const value = String(attr.value || '').trim();
+          if (name.startsWith('on') || name === 'srcdoc') {
+            node.removeAttribute(attr.name);
+            continue;
+          }
+          if (['href', 'xlink:href', 'action', 'formaction'].includes(name) &&
+              /^(?:javascript|vbscript|data\s*:\s*(?:text\/html|application\/xhtml\+xml))/i.test(value)) {
+            node.removeAttribute(attr.name);
+            continue;
+          }
+          if (name === 'style' && /(?:expression\s*\(|url\s*\(\s*['"]?\s*javascript\s*:)/i.test(value)) {
+            node.removeAttribute(attr.name);
+          }
+        }
+      }
+
+      const ns = doc.documentElement?.namespaceURI || 'http://www.w3.org/1999/xhtml';
+      let head = doc.querySelector('head');
+      if (!head) {
+        head = doc.createElementNS(ns, 'head');
+        doc.documentElement?.insertBefore(head, doc.documentElement.firstChild);
+      }
+
+      const csp = doc.createElementNS(ns, 'meta');
+      csp.setAttribute('http-equiv', 'Content-Security-Policy');
+      csp.setAttribute('content',
+        `script-src 'nonce-${FRAME_GESTURE_TOKEN}'; script-src-attr 'none'; object-src 'none'; frame-src 'none'; form-action 'none'`);
+      csp.setAttribute('data-bbr-csp', 'true');
+      head.insertBefore(csp, head.firstChild);
+
+      const bridgeSource = `(() => {
+        const TYPE = ${JSON.stringify(FRAME_GESTURE_TYPE)};
+        const TOKEN = ${JSON.stringify(FRAME_GESTURE_TOKEN)};
+        const MIN_X = ${SWIPE_MIN_X};
+        const MAX_MS = ${SWIPE_MAX_MS};
+        const AXIS_RATIO = ${SWIPE_AXIS_RATIO};
+        let start = null;
+        document.documentElement.setAttribute('data-bbr-gesture-ready', 'true');
+
+        const point = (touch) => touch ? { x: touch.clientX, y: touch.clientY, t: Date.now() } : null;
+        document.addEventListener('touchstart', (event) => {
+          if (event.touches.length !== 1) { start = null; return; }
+          start = point(event.touches[0]);
+        }, { passive: true, capture: true });
+
+        document.addEventListener('touchend', (event) => {
+          const origin = start;
+          start = null;
+          const touch = event.changedTouches && event.changedTouches[0];
+          if (!origin || !touch) return;
+          if ((window.getSelection && window.getSelection().toString().trim())) return;
+          const dx = touch.clientX - origin.x;
+          const dy = touch.clientY - origin.y;
+          const dt = Date.now() - origin.t;
+          if (dt >= MAX_MS || Math.abs(dx) < MIN_X || Math.abs(dx) <= Math.abs(dy) * AXIS_RATIO) return;
+          parent.postMessage({ type: TYPE, token: TOKEN, direction: dx < 0 ? 'next' : 'prev' }, '*');
+        }, { passive: true, capture: true });
+
+        document.addEventListener('touchcancel', () => { start = null; }, { passive: true, capture: true });
+      })();`;
+
+      doc.documentElement?.setAttribute('data-bbr-safe-frame', 'true');
+      const serialized = new XMLSerializer().serializeToString(doc);
+      const trustedScript = `<script type="text/javascript" nonce="${FRAME_GESTURE_TOKEN}" data-bbr-frame-gesture="true">${bridgeSource}</script>`;
+      section.output = /<\/head\s*>/i.test(serialized)
+        ? serialized.replace(/<\/head\s*>/i, trustedScript + '</head>')
+        : trustedScript + serialized;
+    } catch (error) {
+      console.error('Safe EPUB frame preparation failed', error);
+      section.output = `<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="utf-8"/></head><body><p>This section could not be rendered safely.</p></body></html>`;
+    }
+  }
+
+  function installSafeFrameGestureSerializer(book) {
+    if (!book?.spine?.hooks?.serialize || book.__bbrSafeFrameGestureInstalled) return;
+    book.__bbrSafeFrameGestureInstalled = true;
+    book.spine.hooks.serialize.register(secureSerializedBookFrame);
+  }
+
   function installIframeTouchBridge(view) {
     const iframe = view?.iframe;
     if (!iframe) return;
 
-    if (settings.flow === 'paginated') iframe.style.setProperty('touch-action', 'pan-y');
+    if (settings.flow === 'paginated') iframe.style.setProperty('touch-action', 'auto');
     else iframe.style.removeProperty('touch-action');
 
     if (iframe.dataset.bbrTouchBridgeInstalled === 'true') return;
@@ -465,76 +588,17 @@
     root.dataset.bbrPagingGuardsInstalled = 'true';
 
     [root, body].forEach((node) => {
-      // Do not hide EPUB.js' internal horizontal column overflow here.
-      // Pagination works by translating those columns inside the clipped outer mount.
       node.style.removeProperty('overflow-x');
       node.style.setProperty('overscroll-behavior-x', 'none', 'important');
     });
 
     if (settings.flow === 'paginated') {
-      root.style.setProperty('touch-action', 'pan-y', 'important');
-      body.style.setProperty('touch-action', 'pan-y', 'important');
+      root.style.setProperty('touch-action', 'auto', 'important');
+      body.style.setProperty('touch-action', 'auto', 'important');
     } else {
       root.style.removeProperty('touch-action');
       body.style.removeProperty('touch-action');
     }
-
-    let touchStart = null;
-    let pointerStartInBook = null;
-
-    const attemptSwipe = (start, x, y) => {
-      if (!start || settings.flow !== 'paginated') return false;
-      const dx = x - start.x;
-      const dy = y - start.y;
-      const dt = Date.now() - start.t;
-      if (dt >= SWIPE_MAX_MS || Math.abs(dx) < SWIPE_MIN_X || Math.abs(dx) <= Math.abs(dy) * SWIPE_AXIS_RATIO) return false;
-      const selectedText = doc.getSelection?.()?.toString()?.trim();
-      if (selectedText) return false;
-      dx < 0 ? pageNext() : pagePrev();
-      return true;
-    };
-
-    // Bind gesture listeners to the EPUB body rather than the iframe document.
-    // WebKit has had iOS-specific document-level iframe touch routing failures.
-    body.addEventListener('pointerdown', (event) => {
-      if (settings.flow !== 'paginated' || event.isPrimary === false) return;
-      if (event.pointerType && !['touch', 'pen'].includes(event.pointerType)) return;
-      pointerStartInBook = { x: event.clientX, y: event.clientY, t: Date.now() };
-    }, { passive: true, capture: true });
-
-    body.addEventListener('pointerup', (event) => {
-      if (!pointerStartInBook) return;
-      const start = pointerStartInBook;
-      pointerStartInBook = null;
-      attemptSwipe(start, event.clientX, event.clientY);
-    }, { passive: true, capture: true });
-
-    body.addEventListener('pointercancel', () => { pointerStartInBook = null; }, { passive: true, capture: true });
-
-    // iPhone/iPad fallback: do not cancel touchmove. Safari can terminate the
-    // gesture when a page reader intercepts movement too early. Record where
-    // the finger starts and decide only when it lifts.
-    body.addEventListener('touchstart', (event) => {
-      if (settings.flow !== 'paginated' || event.touches.length !== 1) return;
-      const touch = event.touches[0];
-      touchStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
-    }, { passive: true, capture: true });
-
-    body.addEventListener('touchend', (event) => {
-      if (!touchStart || settings.flow !== 'paginated') {
-        touchStart = null;
-        return;
-      }
-      const start = touchStart;
-      const touch = event.changedTouches?.[0];
-      touchStart = null;
-      if (!touch) return;
-      attemptSwipe(start, touch.clientX, touch.clientY);
-    }, { passive: true, capture: true });
-
-    body.addEventListener('touchcancel', () => {
-      touchStart = null;
-    }, { passive: true, capture: true });
   }
 
   async function syncReaderViewport(force = false) {
@@ -562,12 +626,14 @@
     const mount = configureReaderMount();
     const viewport = readerViewportSize();
     lastReaderSize = viewport;
+    installSafeFrameGestureSerializer(currentBook);
     rendition = currentBook.renderTo(mount, {
       width: '100%',
       height: '100%',
       manager: settings.flow === 'paginated' ? 'continuous' : 'default',
       spread: 'none',
       flow: settings.flow,
+      allowScriptedContent: true,
       allowPopups: true
     });
 
@@ -577,29 +643,6 @@
     applyReaderSettings(false);
 
     rendition.on('relocated', onRelocated);
-    rendition.on('touchstart', (event, contents) => {
-      if (settings.flow !== 'paginated' || event?.touches?.length !== 1) return;
-      const touch = event.touches[0];
-      renditionTouchStart = { x: touch.clientX, y: touch.clientY, t: Date.now(), contents };
-    });
-    rendition.on('touchend', (event, contents) => {
-      if (!renditionTouchStart || settings.flow !== 'paginated') {
-        renditionTouchStart = null;
-        return;
-      }
-      const start = renditionTouchStart;
-      renditionTouchStart = null;
-      const touch = event?.changedTouches?.[0];
-      if (!touch) return;
-      const dx = touch.clientX - start.x;
-      const dy = touch.clientY - start.y;
-      const dt = Date.now() - start.t;
-      const selectedText = (contents || start.contents)?.document?.getSelection?.()?.toString()?.trim();
-      if (selectedText) return;
-      if (dt < SWIPE_MAX_MS && Math.abs(dx) >= SWIPE_MIN_X && Math.abs(dx) > Math.abs(dy) * SWIPE_AXIS_RATIO) {
-        dx < 0 ? pageNext() : pagePrev();
-      }
-    });
     rendition.on('rendered', (section, view) => {
       installIframeTouchBridge(view);
       installContentPagingGuards(view?.contents);
@@ -686,7 +729,6 @@
     clearTimeout(saveTimer);
     clearTimeout(readerResizeTimer);
     pageTurnBusy = false;
-    renditionTouchStart = null;
     els.readerStage.classList.remove('page-turn-active', 'page-turn-next', 'page-turn-prev', 'page-turn-out', 'page-turn-in');
     pendingSelection = null;
     els.selectionToolbar.hidden = true;
@@ -1075,6 +1117,15 @@
     els.readerStage.addEventListener('touchstart', primeReaderTouchRouting, { passive: true, capture: true });
     els.readerStage.addEventListener('touchend', primeReaderTouchRouting, { passive: true, capture: true });
     els.readerStage.dataset.bbrTouchParentReady = 'true';
+
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data || data.type !== FRAME_GESTURE_TYPE || data.token !== FRAME_GESTURE_TOKEN || settings.flow !== 'paginated') return;
+      const fromActiveBookFrame = Array.from(els.viewer.querySelectorAll('iframe')).some((frame) => frame.contentWindow === event.source);
+      if (!fromActiveBookFrame) return;
+      if (data.direction === 'next') pageNext();
+      else if (data.direction === 'prev') pagePrev();
+    });
 
     els.readerStage.addEventListener('pointerdown', (event) => { pointerStart = { x: event.clientX, y: event.clientY, t: Date.now() }; });
     els.readerStage.addEventListener('pointerup', (event) => {
