@@ -11,6 +11,7 @@
     fontSize: 100,
     lineHeight: 1.6,
     margin: 5,
+    brightness: 100,
     flow: 'paginated'
   };
 
@@ -49,6 +50,7 @@
     fontFamily: $('fontFamily'), fontSize: $('fontSize'), fontSizeValue: $('fontSizeValue'), fontSizeDown: $('fontSizeDown'), fontSizeUp: $('fontSizeUp'),
     lineHeight: $('lineHeight'), lineHeightValue: $('lineHeightValue'), lineHeightDown: $('lineHeightDown'), lineHeightUp: $('lineHeightUp'),
     readerMargin: $('readerMargin'), readerMarginValue: $('readerMarginValue'), readerMarginDown: $('readerMarginDown'), readerMarginUp: $('readerMarginUp'),
+    readerBrightness: $('readerBrightness'), readerBrightnessValue: $('readerBrightnessValue'),
     flowSelect: $('flowSelect'), themeGrid: $('themeGrid'),
     selectionToolbar: $('selectionToolbar'), highlightSelection: $('highlightSelection'), clearSelection: $('clearSelection'),
     toast: $('toast'), busyOverlay: $('busyOverlay'), busyText: $('busyText'), readerStage: $('readerStage')
@@ -429,25 +431,60 @@
     }
 
     let touchStart = null;
+    let pointerStartInBook = null;
     let horizontalIntent = false;
+    let lastSwipeAt = 0;
 
+    const attemptSwipe = (start, x, y) => {
+      if (!start || settings.flow !== 'paginated') return false;
+      const dx = x - start.x;
+      const dy = y - start.y;
+      const dt = Date.now() - start.t;
+      if (dt >= 800 || Math.abs(dx) < 32 || Math.abs(dx) <= Math.abs(dy) * 1.05) return false;
+      const selectedText = doc.getSelection?.()?.toString()?.trim();
+      if (selectedText) return false;
+      const now = Date.now();
+      if (now - lastSwipeAt < 450) return false;
+      lastSwipeAt = now;
+      dx < 0 ? pageNext() : pagePrev();
+      return true;
+    };
+
+    // Pointer events are the primary path on current iPhone/iPad Safari.
+    // Capture listeners keep EPUB content from swallowing the gesture first.
+    doc.addEventListener('pointerdown', (event) => {
+      if (settings.flow !== 'paginated' || event.isPrimary === false) return;
+      if (event.pointerType && !['touch', 'pen'].includes(event.pointerType)) return;
+      pointerStartInBook = { x: event.clientX, y: event.clientY, t: Date.now() };
+    }, { passive: true, capture: true });
+
+    doc.addEventListener('pointerup', (event) => {
+      if (!pointerStartInBook) return;
+      const start = pointerStartInBook;
+      pointerStartInBook = null;
+      attemptSwipe(start, event.clientX, event.clientY);
+    }, { passive: true, capture: true });
+
+    doc.addEventListener('pointercancel', () => { pointerStartInBook = null; }, { passive: true, capture: true });
+
+    // Touch events remain as a fallback for older WebKit behavior.
     doc.addEventListener('touchstart', (event) => {
       if (settings.flow !== 'paginated' || event.touches.length !== 1) return;
       const touch = event.touches[0];
       touchStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
       horizontalIntent = false;
-    }, { passive: true });
+    }, { passive: true, capture: true });
 
     doc.addEventListener('touchmove', (event) => {
       if (!touchStart || settings.flow !== 'paginated' || event.touches.length !== 1) return;
       const touch = event.touches[0];
       const dx = touch.clientX - touchStart.x;
       const dy = touch.clientY - touchStart.y;
-      if (!horizontalIntent && Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy) * 1.2 && Date.now() - touchStart.t < 600) {
+      if (!horizontalIntent && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.05 && Date.now() - touchStart.t < 700) {
         horizontalIntent = true;
       }
       if (horizontalIntent && event.cancelable) event.preventDefault();
-    }, { passive: false });
+    }, { passive: false, capture: true });
 
     doc.addEventListener('touchend', (event) => {
       if (!touchStart || settings.flow !== 'paginated') {
@@ -455,19 +492,18 @@
         horizontalIntent = false;
         return;
       }
+      const start = touchStart;
       const touch = event.changedTouches?.[0];
-      if (!touch) return;
-      const dx = touch.clientX - touchStart.x;
-      const dy = touch.clientY - touchStart.y;
-      const dt = Date.now() - touchStart.t;
-      const selectedText = doc.getSelection?.()?.toString()?.trim();
       touchStart = null;
       horizontalIntent = false;
-      if (selectedText) return;
-      if (dt < 700 && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.15) {
-        dx < 0 ? pageNext() : pagePrev();
-      }
-    }, { passive: true });
+      if (!touch) return;
+      attemptSwipe(start, touch.clientX, touch.clientY);
+    }, { passive: true, capture: true });
+
+    doc.addEventListener('touchcancel', () => {
+      touchStart = null;
+      horizontalIntent = false;
+    }, { passive: true, capture: true });
   }
 
   async function syncReaderViewport(force = false) {
@@ -671,6 +707,11 @@
     els.lineHeightValue.textContent = Number(settings.lineHeight).toFixed(2).replace(/0$/, '');
     els.readerMargin.value = settings.margin;
     els.readerMarginValue.textContent = settings.margin;
+    const brightness = Math.max(40, Math.min(100, Number(settings.brightness) || 100));
+    settings.brightness = brightness;
+    els.readerBrightness.value = String(brightness);
+    els.readerBrightnessValue.textContent = `${brightness}%`;
+    els.viewer.style.filter = `brightness(${brightness}%)`;
     els.flowSelect.value = settings.flow;
     document.querySelectorAll('.theme-chip').forEach((button) => button.classList.toggle('active', button.dataset.theme === settings.theme));
     if (rendition) {
@@ -936,6 +977,10 @@
     els.lineHeightUp.addEventListener('click', () => adjustSetting('lineHeight', 0.1, 1.3, 2, 1));
     els.readerMarginDown.addEventListener('click', () => adjustSetting('margin', -1, 0, 12));
     els.readerMarginUp.addEventListener('click', () => adjustSetting('margin', 1, 0, 12));
+    els.readerBrightness.addEventListener('input', () => {
+      settings.brightness = Number(els.readerBrightness.value);
+      applyReaderSettings();
+    });
     els.flowSelect.addEventListener('change', async () => {
       settings.flow = els.flowSelect.value;
       saveSettings();
@@ -959,7 +1004,7 @@
       const dy = event.clientY - pointerStart.y;
       const dt = Date.now() - pointerStart.t;
       pointerStart = null;
-      if (dt < 700 && Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.15) dx < 0 ? pageNext() : pagePrev();
+      if (dt < 800 && Math.abs(dx) > 32 && Math.abs(dx) > Math.abs(dy) * 1.05) dx < 0 ? pageNext() : pagePrev();
     });
 
     const handleViewportChange = () => scheduleReaderViewportSync();
