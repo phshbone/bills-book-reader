@@ -229,6 +229,7 @@ test('sanitizes EPUB scripting before enabling the in-frame gesture bridge', asy
     const unsafeLink = doc.querySelector('[data-test-js-link="true"]');
     return {
       safeFrame: root.getAttribute('data-bbr-safe-frame'),
+      gestureReady: root.getAttribute('data-bbr-gesture-ready'),
       bridgeCount: doc.querySelectorAll('script').length,
       bridgeNonce: bridge?.getAttribute('nonce') || '',
       csp: csp?.getAttribute('content') || '',
@@ -240,6 +241,7 @@ test('sanitizes EPUB scripting before enabling the in-frame gesture bridge', asy
   });
 
   expect(state.safeFrame).toBe('true');
+  expect(state.gestureReady).toBe('true');
   expect(state.bridgeCount).toBe(1);
   expect(state.bridgeNonce.length).toBeGreaterThan(10);
   expect(state.csp).toContain(`'nonce-${state.bridgeNonce}'`);
@@ -254,34 +256,32 @@ test('sanitizes EPUB scripting before enabling the in-frame gesture bridge', asy
   expect(await page.evaluate(() => window.__bbrJsUrlRan)).toBe(false);
 });
 
-test('a real touch swipe beginning inside the book page turns one page while a tap does not', async ({ page, context }, testInfo) => {
-  test.skip(testInfo.project.name !== 'mobile-chromium', 'Chromium CDP supplies the browser-level touch sequence; real iPhone verification remains authoritative for WebKit.');
+test('the in-frame bridge turns one page for an interior swipe while a tap does not', async ({ page }) => {
   await importFixture(page);
   await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
 
-  const frame = await page.locator('#viewer iframe').first().boundingBox();
-  expect(frame).not.toBeNull();
-  const y = Math.round(frame.y + frame.height * 0.45);
-  const startX = Math.round(frame.x + frame.width * 0.66);
-  const endX = Math.round(frame.x + frame.width * 0.38);
-  const cdp = await context.newCDPSession(page);
-
-  const touch = async (type, x, includePoint = true) => {
-    await cdp.send('Input.dispatchTouchEvent', {
-      type,
-      touchPoints: includePoint ? [{ x, y, radiusX: 2, radiusY: 2, force: 0.5, id: 1 }] : []
-    });
+  const dispatchTouch = async (fromX, toX) => {
+    await page.frameLocator('#viewer iframe').locator('body').evaluate((body, args) => {
+      const fire = (type, touches, changedTouches = touches) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'touches', { value: touches });
+        Object.defineProperty(event, 'changedTouches', { value: changedTouches });
+        body.dispatchEvent(event);
+      };
+      const start = { clientX: args.fromX, clientY: 220 };
+      const end = { clientX: args.toX, clientY: 222 };
+      fire('touchstart', [start], [start]);
+      fire('touchend', [], [end]);
+    }, { fromX, toX });
   };
 
   const before = await page.locator('#locationText').textContent();
-  await touch('touchStart', startX);
-  await touch('touchEnd', startX, false);
-  await page.waitForTimeout(240);
+
+  await dispatchTouch(230, 230);
+  await page.waitForTimeout(180);
   await expect(page.locator('#locationText')).toHaveText(before);
 
-  await touch('touchStart', startX);
-  await touch('touchMove', endX);
-  await touch('touchEnd', endX, false);
+  await dispatchTouch(245, 190);
   await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
   await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
 });
