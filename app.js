@@ -67,6 +67,7 @@
   let toastTimer = null;
   let installPrompt = null;
   let pointerStart = null;
+  let renditionTouchStart = null;
   let locationsReady = false;
   let pageTurnBusy = false;
   let readerResizeTimer = null;
@@ -390,26 +391,25 @@
 
   function installContentLinkHandling(contents) {
     const doc = contents?.document;
-    if (!doc?.documentElement || doc.documentElement.dataset.bbrLinkHandlingInstalled === 'true') return;
-    doc.documentElement.dataset.bbrLinkHandlingInstalled = 'true';
+    if (!doc?.documentElement) return;
 
     for (const anchor of doc.querySelectorAll('a[href]')) {
       const href = anchor.getAttribute('href')?.trim() || '';
-      if (/^https?:\/\//i.test(href)) {
-        anchor.setAttribute('target', '_blank');
-        anchor.setAttribute('rel', 'noopener noreferrer');
-      }
-    }
+      if (!/^https?:\/\//i.test(href)) continue;
 
-    doc.addEventListener('click', (event) => {
-      const anchor = event.target?.closest?.('a[href]');
-      if (!anchor) return;
-      const href = anchor.getAttribute('href')?.trim() || '';
-      if (!/^https?:\/\//i.test(href)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      window.open(href, '_blank', 'noopener,noreferrer');
-    }, { capture: true });
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener noreferrer');
+      if (anchor.dataset.bbrExternalLinkInstalled === 'true') continue;
+      anchor.dataset.bbrExternalLinkInstalled = 'true';
+
+      // Bind directly to the link instead of relying on iframe-level event
+      // delegation; WebKit is more reliable with the direct user gesture.
+      anchor.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        window.open(href, '_blank', 'noopener,noreferrer');
+      });
+    }
   }
 
   function recoverEscapedBookNavigation(view) {
@@ -559,7 +559,8 @@
       height: '100%',
       manager: settings.flow === 'paginated' ? 'continuous' : 'default',
       spread: 'none',
-      flow: settings.flow
+      flow: settings.flow,
+      allowPopups: true
     });
 
     rendition.hooks?.content?.register?.(installContentPagingGuards);
@@ -568,6 +569,29 @@
     applyReaderSettings(false);
 
     rendition.on('relocated', onRelocated);
+    rendition.on('touchstart', (event, contents) => {
+      if (settings.flow !== 'paginated' || event?.touches?.length !== 1) return;
+      const touch = event.touches[0];
+      renditionTouchStart = { x: touch.clientX, y: touch.clientY, t: Date.now(), contents };
+    });
+    rendition.on('touchend', (event, contents) => {
+      if (!renditionTouchStart || settings.flow !== 'paginated') {
+        renditionTouchStart = null;
+        return;
+      }
+      const start = renditionTouchStart;
+      renditionTouchStart = null;
+      const touch = event?.changedTouches?.[0];
+      if (!touch) return;
+      const dx = touch.clientX - start.x;
+      const dy = touch.clientY - start.y;
+      const dt = Date.now() - start.t;
+      const selectedText = (contents || start.contents)?.document?.getSelection?.()?.toString()?.trim();
+      if (selectedText) return;
+      if (dt < 800 && Math.abs(dx) > 32 && Math.abs(dx) > Math.abs(dy) * 1.05) {
+        dx < 0 ? pageNext() : pagePrev();
+      }
+    });
     rendition.on('rendered', (section, view) => {
       installContentPagingGuards(view?.contents);
       installContentLinkHandling(view?.contents);
@@ -653,6 +677,7 @@
     clearTimeout(saveTimer);
     clearTimeout(readerResizeTimer);
     pageTurnBusy = false;
+    renditionTouchStart = null;
     els.readerStage.classList.remove('page-turn-active', 'page-turn-next', 'page-turn-prev', 'page-turn-out', 'page-turn-in');
     pendingSelection = null;
     els.selectionToolbar.hidden = true;
