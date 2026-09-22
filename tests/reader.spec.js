@@ -28,7 +28,7 @@ async function makeEpub() {
       <spine><itemref idref="c1"/><itemref idref="c2"/></spine>
     </package>`);
   zip.file('OEBPS/nav.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>TOC</title></head><body><nav epub:type="toc"><ol><li><a href="chapter1.xhtml">First Light</a></li><li><a href="chapter2.xhtml">Second Chapter</a></li></ol></nav></body></html>`);
-  zip.file('OEBPS/chapter1.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>First Light</title></head><body><h1>First Light</h1><p>This is the first smoke test paragraph. The quick reader remembers this book locally.</p><p>Searchable phrase: copper lantern.</p>${longParagraphs}</body></html>`);
+  zip.file('OEBPS/chapter1.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>First Light</title><script data-test-book-script="true">parent.__bbrBookScriptRan = true;</script></head><body><h1>First Light</h1><p>This is the first smoke test paragraph. The quick reader remembers this book locally.</p><p>Searchable phrase: copper lantern.</p><p data-test-inline-handler="true" onclick="parent.__bbrInlineHandlerRan = true;">Safe visible text with an unsafe inline handler.</p><a data-test-js-link="true" href="javascript:parent.__bbrJsUrlRan=true">Unsafe JavaScript link</a><iframe data-test-embedded-frame="true" src="https://example.org/"></iframe>${longParagraphs}</body></html>`);
   zip.file('OEBPS/chapter2.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Second Chapter</title></head><body><h1>Second Chapter</h1><p>This is the second chapter used to verify page navigation.</p><p><a data-test-source-link="true" href="https://example.org/source-record">External source record</a></p></body></html>`);
   return zip.generateAsync({ type: 'nodebuffer', mimeType: 'application/epub+zip' });
 }
@@ -208,75 +208,97 @@ test('library shell fits the active viewport without horizontal overflow', async
 
 
 
-test('horizontal swipe gestures turn paginated pages in both directions', async ({ page, browserName }) => {
-  test.skip(browserName === 'webkit', 'Headless Playwright WebKit cannot synthesize native iPhone touch gestures; real-device swipe verification remains required.');
-  await importFixture(page);
-  await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
-
-  const dispatchSwipe = async (fromX, toX) => {
-    await page.frameLocator('#viewer iframe').locator('body').evaluate((body, args) => {
-      body.dispatchEvent(new PointerEvent('pointerdown', {
-          bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.fromX, clientY: 220
-        }));
-      body.dispatchEvent(new PointerEvent('pointerup', {
-        bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.toX, clientY: 222
-      }));
-    }, { fromX, toX });
-  };
-
-  const before = await page.locator('#locationText').textContent();
-  await dispatchSwipe(220, 196);
-  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
-  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
-
-  const afterNext = await page.locator('#locationText').textContent();
-  await dispatchSwipe(196, 220);
-  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(afterNext);
-  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
-  await expect(page.locator('#locationText')).toHaveText(before);
-});
-
-test('touch-end fallback turns a page without cancelling touchmove', async ({ page, browserName }) => {
-  test.skip(browserName === 'webkit', 'Headless WebKit does not treat script-constructed TouchEvent data as a native finger gesture; the WebKit bridge itself is covered separately.');
-  await importFixture(page);
-  await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
-
-  const before = await page.locator('#locationText').textContent();
-  await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
-    const start = new Event('touchstart', { bubbles: true, cancelable: true });
-    Object.defineProperty(start, 'touches', { value: [{ clientX: 220, clientY: 220 }] });
-    Object.defineProperty(start, 'changedTouches', { value: [{ clientX: 220, clientY: 220 }] });
-    body.dispatchEvent(start);
-
-    const end = new Event('touchend', { bubbles: true, cancelable: true });
-    Object.defineProperty(end, 'touches', { value: [] });
-    Object.defineProperty(end, 'changedTouches', { value: [{ clientX: 196, clientY: 222 }] });
-    body.dispatchEvent(end);
+test('sanitizes EPUB scripting before enabling the in-frame gesture bridge', async ({ page }) => {
+  await page.evaluate(() => {
+    window.__bbrBookScriptRan = false;
+    window.__bbrInlineHandlerRan = false;
+    window.__bbrJsUrlRan = false;
   });
-
-  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
-});
-
-test('installs the WebKit iframe touch bridge without blocking touchmove', async ({ page }) => {
   await importFixture(page);
 
-  await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-touch-parent-ready', 'true');
-  await expect(page.locator('#viewer iframe')).toHaveAttribute('data-bbr-touch-bridge-installed', 'true');
+  expect(await page.evaluate(() => window.__bbrBookScriptRan)).toBe(false);
 
-  const bridgeState = await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
-    const doc = body.ownerDocument;
-    const move = new Event('touchmove', { bubbles: true, cancelable: true });
+  const frame = page.locator('#viewer iframe').first();
+  await expect(frame).toHaveAttribute('sandbox', /allow-same-origin/);
+  await expect(frame).toHaveAttribute('sandbox', /allow-scripts/);
+
+  const state = await page.frameLocator('#viewer iframe').locator('html').evaluate((root) => {
+    const doc = root.ownerDocument;
+    const bridge = doc.querySelector('script[data-bbr-frame-gesture="true"]');
+    const csp = doc.querySelector('meta[data-bbr-csp="true"]');
+    const unsafeLink = doc.querySelector('[data-test-js-link="true"]');
     return {
-      bodyGuardInstalled: doc.documentElement.dataset.bbrPagingGuardsInstalled,
-      bodyTouchAction: getComputedStyle(body).touchAction,
-      rootTouchAction: getComputedStyle(doc.documentElement).touchAction,
-      touchMoveAllowed: body.dispatchEvent(move)
+      safeFrame: root.getAttribute('data-bbr-safe-frame'),
+      bridgeCount: doc.querySelectorAll('script').length,
+      bridgeNonce: bridge?.getAttribute('nonce') || '',
+      csp: csp?.getAttribute('content') || '',
+      inlineHandler: doc.querySelector('[data-test-inline-handler="true"]')?.getAttribute('onclick') || null,
+      embeddedFrame: Boolean(doc.querySelector('[data-test-embedded-frame="true"]')),
+      unsafeHref: unsafeLink?.getAttribute('href') || null,
+      bodyTouchAction: getComputedStyle(doc.body).touchAction
     };
   });
 
-  expect(bridgeState.bodyGuardInstalled).toBe('true');
-  expect([bridgeState.bodyTouchAction, bridgeState.rootTouchAction]).toContain('pan-y');
-  expect(bridgeState.touchMoveAllowed).toBe(true);
+  expect(state.safeFrame).toBe('true');
+  expect(state.bridgeCount).toBe(1);
+  expect(state.bridgeNonce.length).toBeGreaterThan(10);
+  expect(state.csp).toContain(`'nonce-${state.bridgeNonce}'`);
+  expect(state.csp).toContain("script-src-attr 'none'");
+  expect(state.inlineHandler).toBeNull();
+  expect(state.embeddedFrame).toBe(false);
+  expect(state.unsafeHref).toBeNull();
+  expect(state.bodyTouchAction).toBe('auto');
+
+  await page.frameLocator('#viewer iframe').locator('[data-test-inline-handler="true"]').click();
+  expect(await page.evaluate(() => window.__bbrInlineHandlerRan)).toBe(false);
+  expect(await page.evaluate(() => window.__bbrJsUrlRan)).toBe(false);
+});
+
+test('a real touch swipe beginning inside the book page turns one page while a tap does not', async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'Chromium CDP supplies the browser-level touch sequence; real iPhone verification remains authoritative for WebKit.');
+  await importFixture(page);
+  await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
+
+  const frame = await page.locator('#viewer iframe').first().boundingBox();
+  expect(frame).not.toBeNull();
+  const y = Math.round(frame.y + frame.height * 0.45);
+  const startX = Math.round(frame.x + frame.width * 0.66);
+  const endX = Math.round(frame.x + frame.width * 0.38);
+  const cdp = await context.newCDPSession(page);
+
+  const touch = async (type, x, includePoint = true) => {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: includePoint ? [{ x, y, radiusX: 2, radiusY: 2, force: 0.5, id: 1 }] : []
+    });
+  };
+
+  const before = await page.locator('#locationText').textContent();
+  await touch('touchStart', startX);
+  await touch('touchEnd', startX, false);
+  await page.waitForTimeout(240);
+  await expect(page.locator('#locationText')).toHaveText(before);
+
+  await touch('touchStart', startX);
+  await touch('touchMove', endX);
+  await touch('touchEnd', endX, false);
+  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
+  await expect(page.locator('#readerStage')).not.toHaveClass(/page-turn-active/);
+});
+
+test('text selection remains available inside the sanitized EPUB frame', async ({ page }) => {
+  await importFixture(page);
+  const selected = await page.frameLocator('#viewer iframe').getByText('Searchable phrase: copper lantern.').evaluate((node) => {
+    const range = node.ownerDocument.createRange();
+    range.selectNodeContents(node);
+    const selection = node.ownerDocument.defaultView.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const value = selection.toString();
+    selection.removeAllRanges();
+    return value;
+  });
+  expect(selected).toContain('copper lantern');
 });
 
 test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {
@@ -311,7 +333,7 @@ test('paginated mode locks content to one viewport and serializes page turns', a
       rootTouchAction: getComputedStyle(doc.documentElement).touchAction
     };
   });
-  expect([contentGuards.bodyTouchAction, contentGuards.rootTouchAction]).toContain('pan-y');
+  expect([contentGuards.bodyTouchAction, contentGuards.rootTouchAction]).toContain('auto');
 
   const expectedGutter = await page.evaluate(() => Math.round((window.visualViewport?.width || window.innerWidth) * 0.05));
   expect(Math.abs(shellGeometry.mountLeftGap - expectedGutter)).toBeLessThanOrEqual(2);
