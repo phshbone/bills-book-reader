@@ -436,6 +436,25 @@
     });
   }
 
+  function installIframeTouchBridge(view) {
+    const iframe = view?.iframe;
+    if (!iframe) return;
+
+    if (settings.flow === 'paginated') iframe.style.setProperty('touch-action', 'pan-y');
+    else iframe.style.removeProperty('touch-action');
+
+    if (iframe.dataset.bbrTouchBridgeInstalled === 'true') return;
+    iframe.dataset.bbrTouchBridgeInstalled = 'true';
+
+    // WebKit has historically required touch listeners on an iframe or one of
+    // its top-level parents before reliably routing touch events inside it.
+    // These are intentionally passive: actual swipe recognition stays inside
+    // the book body so links, selection and highlighting remain usable.
+    const primeTouchRouting = () => {};
+    iframe.addEventListener('touchstart', primeTouchRouting, { passive: true });
+    iframe.addEventListener('touchend', primeTouchRouting, { passive: true });
+  }
+
   function installContentPagingGuards(contents) {
     const doc = contents?.document;
     if (!doc?.documentElement || !doc.body) return;
@@ -475,33 +494,33 @@
       return true;
     };
 
-    // Pointer events are the primary path on current iPhone/iPad Safari.
-    // Capture listeners keep EPUB content from swallowing the gesture first.
-    doc.addEventListener('pointerdown', (event) => {
+    // Bind gesture listeners to the EPUB body rather than the iframe document.
+    // WebKit has had iOS-specific document-level iframe touch routing failures.
+    body.addEventListener('pointerdown', (event) => {
       if (settings.flow !== 'paginated' || event.isPrimary === false) return;
       if (event.pointerType && !['touch', 'pen'].includes(event.pointerType)) return;
       pointerStartInBook = { x: event.clientX, y: event.clientY, t: Date.now() };
     }, { passive: true, capture: true });
 
-    doc.addEventListener('pointerup', (event) => {
+    body.addEventListener('pointerup', (event) => {
       if (!pointerStartInBook) return;
       const start = pointerStartInBook;
       pointerStartInBook = null;
       attemptSwipe(start, event.clientX, event.clientY);
     }, { passive: true, capture: true });
 
-    doc.addEventListener('pointercancel', () => { pointerStartInBook = null; }, { passive: true, capture: true });
+    body.addEventListener('pointercancel', () => { pointerStartInBook = null; }, { passive: true, capture: true });
 
     // iPhone/iPad fallback: do not cancel touchmove. Safari can terminate the
     // gesture when a page reader intercepts movement too early. Record where
     // the finger starts and decide only when it lifts.
-    doc.addEventListener('touchstart', (event) => {
+    body.addEventListener('touchstart', (event) => {
       if (settings.flow !== 'paginated' || event.touches.length !== 1) return;
       const touch = event.touches[0];
       touchStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
     }, { passive: true, capture: true });
 
-    doc.addEventListener('touchend', (event) => {
+    body.addEventListener('touchend', (event) => {
       if (!touchStart || settings.flow !== 'paginated') {
         touchStart = null;
         return;
@@ -513,7 +532,7 @@
       attemptSwipe(start, touch.clientX, touch.clientY);
     }, { passive: true, capture: true });
 
-    doc.addEventListener('touchcancel', () => {
+    body.addEventListener('touchcancel', () => {
       touchStart = null;
     }, { passive: true, capture: true });
   }
@@ -582,6 +601,7 @@
       }
     });
     rendition.on('rendered', (section, view) => {
+      installIframeTouchBridge(view);
       installContentPagingGuards(view?.contents);
       installContentLinkHandling(view?.contents);
       applyThemeToContents(view?.contents);
@@ -1048,6 +1068,13 @@
       if (event.key === 'ArrowLeft' || event.key === 'PageUp') { event.preventDefault(); pagePrev(); }
       if (event.key === 'Escape') closePanels();
     });
+
+    // Keep top-level touch listeners registered around the iframe. On iOS
+    // WebKit this helps touch delivery reach listeners inside the EPUB frame.
+    const primeReaderTouchRouting = () => {};
+    els.readerStage.addEventListener('touchstart', primeReaderTouchRouting, { passive: true, capture: true });
+    els.readerStage.addEventListener('touchend', primeReaderTouchRouting, { passive: true, capture: true });
+    els.readerStage.dataset.bbrTouchParentReady = 'true';
 
     els.readerStage.addEventListener('pointerdown', (event) => { pointerStart = { x: event.clientX, y: event.clientY, t: Date.now() }; });
     els.readerStage.addEventListener('pointerup', (event) => {

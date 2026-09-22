@@ -215,11 +215,10 @@ test('horizontal swipe gestures turn paginated pages in both directions', async 
 
   const dispatchSwipe = async (fromX, toX) => {
     await page.frameLocator('#viewer iframe').locator('body').evaluate((body, args) => {
-      const doc = body.ownerDocument;
-      doc.dispatchEvent(new PointerEvent('pointerdown', {
+      body.dispatchEvent(new PointerEvent('pointerdown', {
           bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.fromX, clientY: 220
         }));
-      doc.dispatchEvent(new PointerEvent('pointerup', {
+      body.dispatchEvent(new PointerEvent('pointerup', {
         bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: args.toX, clientY: 222
       }));
     }, { fromX, toX });
@@ -238,7 +237,7 @@ test('horizontal swipe gestures turn paginated pages in both directions', async 
 });
 
 test('touch-end fallback turns a page without cancelling touchmove', async ({ page, browserName }) => {
-  test.skip(browserName === 'webkit', 'Headless WebKit cannot synthesize a genuine iPhone touch sequence.');
+  test.skip(browserName === 'webkit', 'Headless WebKit does not treat script-constructed TouchEvent data as a native finger gesture; the WebKit bridge itself is covered separately.');
   await importFixture(page);
   await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
 
@@ -256,6 +255,28 @@ test('touch-end fallback turns a page without cancelling touchmove', async ({ pa
   });
 
   await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
+});
+
+test('installs the WebKit iframe touch bridge without blocking touchmove', async ({ page }) => {
+  await importFixture(page);
+
+  await expect(page.locator('#readerStage')).toHaveAttribute('data-bbr-touch-parent-ready', 'true');
+  await expect(page.locator('#viewer iframe')).toHaveAttribute('data-bbr-touch-bridge-installed', 'true');
+
+  const bridgeState = await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
+    const doc = body.ownerDocument;
+    const move = new Event('touchmove', { bubbles: true, cancelable: true });
+    return {
+      bodyGuardInstalled: doc.documentElement.dataset.bbrPagingGuardsInstalled,
+      bodyTouchAction: getComputedStyle(body).touchAction,
+      rootTouchAction: getComputedStyle(doc.documentElement).touchAction,
+      touchMoveAllowed: body.dispatchEvent(move)
+    };
+  });
+
+  expect(bridgeState.bodyGuardInstalled).toBe('true');
+  expect([bridgeState.bodyTouchAction, bridgeState.rootTouchAction]).toContain('pan-y');
+  expect(bridgeState.touchMoveAllowed).toBe(true);
 });
 
 test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {
