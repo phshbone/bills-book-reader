@@ -86,6 +86,9 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await expect(page.locator('#lineHeightValue')).toHaveText('1.5');
   await page.getByRole('button', { name: 'Increase margins' }).click();
   await expect(page.locator('#readerMarginValue')).toHaveText('6');
+  await page.locator('#readerBrightness').fill('70');
+  await expect(page.locator('#readerBrightnessValue')).toHaveText('70%');
+  await expect(page.locator('#viewer')).toHaveCSS('filter', 'brightness(0.7)');
   await page.getByRole('button', { name: 'Close appearance' }).click();
   await expect(page.frameLocator('#viewer iframe').getByText('First Light')).toBeVisible();
 
@@ -150,6 +153,37 @@ test('library shell fits the active viewport without horizontal overflow', async
   await expect(page.getByText('Bring your own books.')).toBeVisible();
 });
 
+
+
+test('horizontal swipe gestures turn paginated pages in both directions', async ({ page }) => {
+  await importFixture(page);
+  await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
+
+  const before = await page.locator('#locationText').textContent();
+  await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
+    const doc = body.ownerDocument;
+    doc.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 280, clientY: 220
+    }));
+    doc.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, pointerId: 1, pointerType: 'touch', isPrimary: true, clientX: 150, clientY: 222
+    }));
+  });
+  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(before);
+
+  const afterNext = await page.locator('#locationText').textContent();
+  await page.frameLocator('#viewer iframe').locator('body').evaluate((body) => {
+    const doc = body.ownerDocument;
+    doc.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, pointerId: 2, pointerType: 'touch', isPrimary: true, clientX: 150, clientY: 220
+    }));
+    doc.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, pointerId: 2, pointerType: 'touch', isPrimary: true, clientX: 285, clientY: 220
+    }));
+  });
+  await expect.poll(async () => page.locator('#locationText').textContent()).not.toBe(afterNext);
+  await expect(page.locator('#locationText')).toHaveText(before);
+});
 
 test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {
   await importFixture(page);
