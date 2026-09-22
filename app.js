@@ -523,6 +523,10 @@
 
     rendition.on('relocated', onRelocated);
     rendition.on('rendered', (section, view) => {
+      const snapper = rendition?.manager?.snapper;
+      els.readerStage.dataset.bbrNativeSnap = snapper ? 'true' : 'false';
+      els.readerStage.dataset.bbrNativeSnapTouch = snapper?.supportsTouch ? 'true' : 'false';
+      els.readerStage.dataset.bbrManagerPaginated = rendition?.manager?.isPaginated ? 'true' : 'false';
       installIframeTouchBridge(view);
       installContentPagingGuards(view?.contents);
       installContentLinkHandling(view?.contents);
@@ -617,6 +621,9 @@
     currentBook = null;
     currentRecord = null;
     locationsReady = false;
+    delete els.readerStage.dataset.bbrNativeSnap;
+    delete els.readerStage.dataset.bbrNativeSnapTouch;
+    delete els.readerStage.dataset.bbrManagerPaginated;
     els.viewer.innerHTML = '';
   }
 
