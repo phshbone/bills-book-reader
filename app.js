@@ -520,6 +520,7 @@
         const MAX_MS = ${SWIPE_MAX_MS};
         const AXIS_RATIO = ${SWIPE_AXIS_RATIO};
         let start = null;
+        document.documentElement.setAttribute('data-bbr-gesture-ready', 'true');
 
         const point = (touch) => touch ? { x: touch.clientX, y: touch.clientY, t: Date.now() } : null;
         document.addEventListener('touchstart', (event) => {
