@@ -510,10 +510,7 @@
       csp.setAttribute('data-bbr-csp', 'true');
       head.insertBefore(csp, head.firstChild);
 
-      const script = doc.createElementNS(ns, 'script');
-      script.setAttribute('nonce', FRAME_GESTURE_TOKEN);
-      script.setAttribute('data-bbr-frame-gesture', 'true');
-      script.textContent = `(() => {
+      const bridgeSource = `(() => {
         const TYPE = ${JSON.stringify(FRAME_GESTURE_TYPE)};
         const TOKEN = ${JSON.stringify(FRAME_GESTURE_TOKEN)};
         const MIN_X = ${SWIPE_MIN_X};
@@ -543,10 +540,13 @@
 
         document.addEventListener('touchcancel', () => { start = null; }, { passive: true, capture: true });
       })();`;
-      head.appendChild(script);
-      doc.documentElement?.setAttribute('data-bbr-safe-frame', 'true');
 
-      section.output = new XMLSerializer().serializeToString(doc);
+      doc.documentElement?.setAttribute('data-bbr-safe-frame', 'true');
+      const serialized = new XMLSerializer().serializeToString(doc);
+      const trustedScript = `<script type="text/javascript" nonce="${FRAME_GESTURE_TOKEN}" data-bbr-frame-gesture="true">${bridgeSource}</script>`;
+      section.output = /<\/head\s*>/i.test(serialized)
+        ? serialized.replace(/<\/head\s*>/i, trustedScript + '</head>')
+        : trustedScript + serialized;
     } catch (error) {
       console.error('Safe EPUB frame preparation failed', error);
       section.output = `<!doctype html><html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="utf-8"/></head><body><p>This section could not be rendered safely.</p></body></html>`;
