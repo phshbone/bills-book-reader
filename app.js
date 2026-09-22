@@ -70,7 +70,6 @@
   let toastTimer = null;
   let installPrompt = null;
   let pointerStart = null;
-  let renditionTouchStart = null;
   let locationsReady = false;
   let pageTurnBusy = false;
   let readerResizeTimer = null;
@@ -465,8 +464,8 @@
     root.dataset.bbrPagingGuardsInstalled = 'true';
 
     [root, body].forEach((node) => {
-      // Do not hide EPUB.js' internal horizontal column overflow here.
-      // Pagination works by translating those columns inside the clipped outer mount.
+      // EPUB.js owns the horizontal page rail in paginated mode. Keep the
+      // document itself from creating a second horizontal scroll surface.
       node.style.removeProperty('overflow-x');
       node.style.setProperty('overscroll-behavior-x', 'none', 'important');
     });
@@ -478,63 +477,6 @@
       root.style.removeProperty('touch-action');
       body.style.removeProperty('touch-action');
     }
-
-    let touchStart = null;
-    let pointerStartInBook = null;
-
-    const attemptSwipe = (start, x, y) => {
-      if (!start || settings.flow !== 'paginated') return false;
-      const dx = x - start.x;
-      const dy = y - start.y;
-      const dt = Date.now() - start.t;
-      if (dt >= SWIPE_MAX_MS || Math.abs(dx) < SWIPE_MIN_X || Math.abs(dx) <= Math.abs(dy) * SWIPE_AXIS_RATIO) return false;
-      const selectedText = doc.getSelection?.()?.toString()?.trim();
-      if (selectedText) return false;
-      dx < 0 ? pageNext() : pagePrev();
-      return true;
-    };
-
-    // Bind gesture listeners to the EPUB body rather than the iframe document.
-    // WebKit has had iOS-specific document-level iframe touch routing failures.
-    body.addEventListener('pointerdown', (event) => {
-      if (settings.flow !== 'paginated' || event.isPrimary === false) return;
-      if (event.pointerType && !['touch', 'pen'].includes(event.pointerType)) return;
-      pointerStartInBook = { x: event.clientX, y: event.clientY, t: Date.now() };
-    }, { passive: true, capture: true });
-
-    body.addEventListener('pointerup', (event) => {
-      if (!pointerStartInBook) return;
-      const start = pointerStartInBook;
-      pointerStartInBook = null;
-      attemptSwipe(start, event.clientX, event.clientY);
-    }, { passive: true, capture: true });
-
-    body.addEventListener('pointercancel', () => { pointerStartInBook = null; }, { passive: true, capture: true });
-
-    // iPhone/iPad fallback: do not cancel touchmove. Safari can terminate the
-    // gesture when a page reader intercepts movement too early. Record where
-    // the finger starts and decide only when it lifts.
-    body.addEventListener('touchstart', (event) => {
-      if (settings.flow !== 'paginated' || event.touches.length !== 1) return;
-      const touch = event.touches[0];
-      touchStart = { x: touch.clientX, y: touch.clientY, t: Date.now() };
-    }, { passive: true, capture: true });
-
-    body.addEventListener('touchend', (event) => {
-      if (!touchStart || settings.flow !== 'paginated') {
-        touchStart = null;
-        return;
-      }
-      const start = touchStart;
-      const touch = event.changedTouches?.[0];
-      touchStart = null;
-      if (!touch) return;
-      attemptSwipe(start, touch.clientX, touch.clientY);
-    }, { passive: true, capture: true });
-
-    body.addEventListener('touchcancel', () => {
-      touchStart = null;
-    }, { passive: true, capture: true });
   }
 
   async function syncReaderViewport(force = false) {
@@ -568,6 +510,9 @@
       manager: settings.flow === 'paginated' ? 'continuous' : 'default',
       spread: 'none',
       flow: settings.flow,
+      snap: settings.flow === 'paginated'
+        ? { duration: 140, minDistance: 12, minVelocity: 0.06 }
+        : false,
       allowPopups: true
     });
 
@@ -577,29 +522,6 @@
     applyReaderSettings(false);
 
     rendition.on('relocated', onRelocated);
-    rendition.on('touchstart', (event, contents) => {
-      if (settings.flow !== 'paginated' || event?.touches?.length !== 1) return;
-      const touch = event.touches[0];
-      renditionTouchStart = { x: touch.clientX, y: touch.clientY, t: Date.now(), contents };
-    });
-    rendition.on('touchend', (event, contents) => {
-      if (!renditionTouchStart || settings.flow !== 'paginated') {
-        renditionTouchStart = null;
-        return;
-      }
-      const start = renditionTouchStart;
-      renditionTouchStart = null;
-      const touch = event?.changedTouches?.[0];
-      if (!touch) return;
-      const dx = touch.clientX - start.x;
-      const dy = touch.clientY - start.y;
-      const dt = Date.now() - start.t;
-      const selectedText = (contents || start.contents)?.document?.getSelection?.()?.toString()?.trim();
-      if (selectedText) return;
-      if (dt < SWIPE_MAX_MS && Math.abs(dx) >= SWIPE_MIN_X && Math.abs(dx) > Math.abs(dy) * SWIPE_AXIS_RATIO) {
-        dx < 0 ? pageNext() : pagePrev();
-      }
-    });
     rendition.on('rendered', (section, view) => {
       installIframeTouchBridge(view);
       installContentPagingGuards(view?.contents);
