@@ -469,6 +469,15 @@
 
   function secureSerializedBookFrame(output, section) {
     try {
+      // EPUB.js serializer hooks receive the original serialized section rather
+      // than a guaranteed chain of prior hook mutations. Re-apply the library's
+      // resource substitutions here before sanitizing so archived EPUB assets
+      // (cover art, inline images, CSS resources) remain blob/data URLs instead
+      // of falling back to page-relative HTTP requests.
+      if (currentBook?.resources?.substitute) {
+        output = currentBook.resources.substitute(output, section?.url);
+      }
+
       let doc = new DOMParser().parseFromString(output, 'application/xhtml+xml');
       if (doc.querySelector('parsererror')) doc = new DOMParser().parseFromString(output, 'text/html');
 
