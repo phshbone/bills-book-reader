@@ -375,6 +375,10 @@ test('page turn controls are full-height edge tap zones in paginated mode', asyn
   expect(geometry.prevTopGap).toBeLessThanOrEqual(1);
   expect(geometry.nextTopGap).toBeLessThanOrEqual(1);
 
+  const nextZone = page.getByRole('button', { name: 'Next page' });
+  await nextZone.hover();
+  await expect(nextZone).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+
   await page.getByRole('button', { name: 'Reading appearance' }).click();
   await page.locator('#flowSelect').selectOption('scrolled-doc');
   await expect(page.locator('#readerStage')).toHaveAttribute('data-flow', 'scrolled-doc');
