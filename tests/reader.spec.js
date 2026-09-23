@@ -104,7 +104,15 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await expect(page.getByText('Bookmark added')).toBeVisible();
   await page.getByRole('button', { name: 'Show bookmarks and highlights' }).click();
   await expect(page.locator('#bookmarkList .mark-item')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Close marks' }).click();
+  const marksClose = page.getByRole('button', { name: 'Close marks' });
+  await expect(marksClose).toHaveText('Done');
+  const marksCloseGeometry = await marksClose.evaluate((button) => {
+    const buttonRect = button.getBoundingClientRect();
+    const panelRect = button.closest('#bookmarkPanel').getBoundingClientRect();
+    return { buttonBottom: buttonRect.bottom, panelBottom: panelRect.bottom };
+  });
+  expect(Math.abs(marksCloseGeometry.panelBottom - marksCloseGeometry.buttonBottom)).toBeLessThan(110);
+  await marksClose.click();
 
   await page.getByRole('button', { name: 'Search in book' }).click();
   await page.locator('#bookSearchInput').fill('copper lantern');
