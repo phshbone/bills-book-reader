@@ -89,7 +89,15 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await page.locator('#readerBrightness').fill('70');
   await expect(page.locator('#readerBrightnessValue')).toHaveText('70%');
   await expect(page.locator('#viewer')).toHaveCSS('filter', 'brightness(0.7)');
-  await page.getByRole('button', { name: 'Close appearance' }).click();
+  const appearanceClose = page.getByRole('button', { name: 'Close appearance' });
+  await expect(appearanceClose).toHaveText('Done');
+  const closeGeometry = await appearanceClose.evaluate((button) => {
+    const buttonRect = button.getBoundingClientRect();
+    const panelRect = button.closest('#appearancePanel').getBoundingClientRect();
+    return { buttonBottom: buttonRect.bottom, panelBottom: panelRect.bottom };
+  });
+  expect(Math.abs(closeGeometry.panelBottom - closeGeometry.buttonBottom)).toBeLessThan(110);
+  await appearanceClose.click();
   await expect(page.frameLocator('#viewer iframe').getByText('First Light')).toBeVisible();
 
   await page.getByRole('button', { name: 'Add bookmark' }).click();
@@ -164,9 +172,15 @@ test('external source links are prepared to leave the EPUB frame', async ({ page
   await expect.poll(() => page.evaluate(() => window.__bbrOpenedSource)).toBe('https://example.org/source-record');
 });
 
-test('reader header uses the dark green visual anchor', async ({ page }) => {
+test('reader status stays at top while the action toolbar carries the green visual anchor', async ({ page }) => {
   await importFixture(page);
-  await expect(page.locator('#readerTopbar')).toHaveCSS('background-color', 'rgb(64, 88, 79)');
+  await expect(page.locator('#readerTopbar')).not.toHaveCSS('background-color', 'rgb(64, 88, 79)');
+  await expect(page.locator('#readerFooter')).toHaveCSS('background-color', 'rgb(64, 88, 79)');
+
+  const order = await page.locator('#readerFooter .reader-actions > button').evaluateAll((buttons) =>
+    buttons.map((button) => button.id)
+  );
+  expect(order).toEqual(['searchButton', 'appearanceButton', 'tocButton', 'bookmarkButton', 'marksButton']);
 });
 
 test('reading preferences persist across reloads', async ({ page }) => {
@@ -299,6 +313,38 @@ test('text selection remains available inside the sanitized EPUB frame', async (
     return value;
   });
   expect(selected).toContain('copper lantern');
+});
+
+test('page turn controls are full-height edge tap zones in paginated mode', async ({ page }) => {
+  await importFixture(page);
+  const geometry = await page.evaluate(() => {
+    const stage = document.querySelector('#readerStage').getBoundingClientRect();
+    const prev = document.querySelector('#prevPage').getBoundingClientRect();
+    const next = document.querySelector('#nextPage').getBoundingClientRect();
+    return {
+      stageHeight: stage.height,
+      prevHeight: prev.height,
+      nextHeight: next.height,
+      prevWidth: prev.width,
+      nextWidth: next.width,
+      prevTopGap: Math.abs(prev.top - stage.top),
+      nextTopGap: Math.abs(next.top - stage.top)
+    };
+  });
+  expect(Math.abs(geometry.stageHeight - geometry.prevHeight)).toBeLessThanOrEqual(2);
+  expect(Math.abs(geometry.stageHeight - geometry.nextHeight)).toBeLessThanOrEqual(2);
+  expect(geometry.prevWidth).toBeGreaterThanOrEqual(40);
+  expect(geometry.nextWidth).toBeGreaterThanOrEqual(40);
+  expect(geometry.prevWidth).toBeLessThanOrEqual(56);
+  expect(geometry.nextWidth).toBeLessThanOrEqual(56);
+  expect(geometry.prevTopGap).toBeLessThanOrEqual(1);
+  expect(geometry.nextTopGap).toBeLessThanOrEqual(1);
+
+  await page.getByRole('button', { name: 'Reading appearance' }).click();
+  await page.locator('#flowSelect').selectOption('scrolled-doc');
+  await expect(page.locator('#readerStage')).toHaveAttribute('data-flow', 'scrolled-doc');
+  await expect(page.getByRole('button', { name: 'Previous page' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Next page' })).toBeHidden();
 });
 
 test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {

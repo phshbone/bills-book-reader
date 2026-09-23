@@ -61,16 +61,17 @@
 
       <section id="readerView" class="reader-view" hidden aria-label="Book reader">
         <header class="reader-topbar" id="readerTopbar">
-          <button class="icon-button" id="backToLibrary" type="button" aria-label="Back to library">←</button>
-          <div class="reader-title-wrap">
-            <strong id="readerBookTitle">Book</strong>
-            <span id="readerChapterTitle">Opening…</span>
+          <div class="reader-status-main">
+            <button class="icon-button" id="backToLibrary" type="button" aria-label="Back to library">←</button>
+            <div class="reader-title-wrap">
+              <strong id="readerBookTitle">Book</strong>
+              <span id="readerChapterTitle">Opening…</span>
+            </div>
           </div>
-          <div class="reader-actions">
-            <button class="icon-button" id="bookmarkButton" type="button" aria-label="Add bookmark" title="Bookmark">◇</button>
-            <button class="icon-button" id="searchButton" type="button" aria-label="Search in book" title="Search">⌕</button>
-            <button class="icon-button" id="tocButton" type="button" aria-label="Table of contents" title="Contents">☰</button>
-            <button class="icon-button" id="appearanceButton" type="button" aria-label="Reading appearance" title="Appearance">Aa</button>
+          <div class="progress-line">
+            <span id="progressText">0%</span>
+            <input id="progressSlider" type="range" min="0" max="1000" value="0" aria-label="Reading progress">
+            <span id="locationText">—</span>
           </div>
         </header>
 
@@ -85,11 +86,13 @@
           </div>
         </div>
 
-        <footer class="reader-footer" id="readerFooter">
-          <div class="progress-line">
-            <span id="progressText">0%</span>
-            <input id="progressSlider" type="range" min="0" max="1000" value="0" aria-label="Reading progress">
-            <span id="locationText">—</span>
+        <footer class="reader-footer" id="readerFooter" aria-label="Reader tools">
+          <div class="reader-actions">
+            <button class="icon-button" id="searchButton" type="button" aria-label="Search in book" title="Search">⌕</button>
+            <button class="icon-button" id="appearanceButton" type="button" aria-label="Reading appearance" title="Appearance">Aa</button>
+            <button class="icon-button" id="tocButton" type="button" aria-label="Table of contents" title="Contents">☰</button>
+            <button class="icon-button" id="bookmarkButton" type="button" aria-label="Add bookmark" title="Bookmark">◇</button>
+            <button class="icon-button marks-button" id="marksButton" type="button" aria-label="Show bookmarks and highlights" title="Marks">Marks</button>
           </div>
         </footer>
 
@@ -117,7 +120,6 @@
         <aside class="side-panel" id="appearancePanel" hidden aria-label="Reading appearance">
           <div class="panel-head">
             <div><p class="eyebrow">reading</p><h2>Appearance</h2></div>
-            <button class="icon-button panel-close" type="button" data-close-panel="appearancePanel" aria-label="Close appearance">×</button>
           </div>
 
           <div class="setting-block">
@@ -182,6 +184,10 @@
               <option value="scrolled-doc">Scroll</option>
             </select>
           </div>
+
+          <div class="panel-bottom-actions">
+            <button class="panel-done-button" type="button" data-close-panel="appearancePanel" aria-label="Close appearance">Done</button>
+          </div>
         </aside>
 
         <aside class="side-panel" id="bookmarkPanel" hidden aria-label="Bookmarks and highlights">
@@ -195,7 +201,6 @@
           <div id="highlightList" class="mark-list"></div>
         </aside>
 
-        <button id="marksButton" class="marks-tab" type="button" aria-label="Show bookmarks and highlights">Marks</button>
       </section>
     </main>
 

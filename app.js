@@ -813,6 +813,7 @@
     els.readerBrightnessValue.textContent = `${brightness}%`;
     els.viewer.style.filter = `brightness(${brightness}%)`;
     els.flowSelect.value = settings.flow;
+    els.readerStage.dataset.flow = settings.flow;
     document.querySelectorAll('.theme-chip').forEach((button) => button.classList.toggle('active', button.dataset.theme === settings.theme));
     if (rendition) {
       rendition.themes.select(settings.theme);
