@@ -334,6 +334,10 @@
       }
       currentBook = ePub(data.slice(0));
       await currentBook.ready;
+      // EPUB.js resolves metadata/spine in ready before archived resource
+      // replacements are guaranteed complete. Wait for opened so cover and
+      // inline image URLs are rewritten before the first spine item renders.
+      await currentBook.opened;
       await setupRendition();
       await restoreReadingPosition(currentRecord);
       renderToc(await currentBook.loaded.navigation);
