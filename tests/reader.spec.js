@@ -89,7 +89,16 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await page.locator('#readerBrightness').fill('70');
   await expect(page.locator('#readerBrightnessValue')).toHaveText('70%');
   await expect(page.locator('#viewer')).toHaveCSS('filter', 'brightness(0.7)');
-  await page.getByRole('button', { name: 'Close appearance' }).click();
+  const appearanceClose = page.getByRole('button', { name: 'Close appearance' });
+  await expect(appearanceClose).toHaveText('Done');
+  const appearancePanel = page.locator('#appearancePanel');
+  const closeGeometry = await appearanceClose.evaluate((button) => {
+    const buttonRect = button.getBoundingClientRect();
+    const panelRect = button.closest('#appearancePanel').getBoundingClientRect();
+    return { buttonBottom: buttonRect.bottom, panelBottom: panelRect.bottom };
+  });
+  expect(Math.abs(closeGeometry.panelBottom - closeGeometry.buttonBottom)).toBeLessThan(110);
+  await appearanceClose.click();
   await expect(page.frameLocator('#viewer iframe').getByText('First Light')).toBeVisible();
 
   await page.getByRole('button', { name: 'Add bookmark' }).click();
