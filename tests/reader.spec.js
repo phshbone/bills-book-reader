@@ -33,6 +33,43 @@ async function makeEpub() {
   return zip.generateAsync({ type: 'nodebuffer', mimeType: 'application/epub+zip' });
 }
 
+
+async function makeCoverEpub() {
+  const zip = new JSZip();
+  const coverPng = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZP1cAAAAASUVORK5CYII=',
+    'base64'
+  );
+  zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+  zip.file('META-INF/container.xml', `<?xml version="1.0"?>
+    <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+      <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+    </container>`);
+  zip.file('OEBPS/content.opf', `<?xml version="1.0" encoding="UTF-8"?>
+    <package version="3.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="uid">
+      <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+        <dc:identifier id="uid">cover-smoke-book</dc:identifier>
+        <dc:title>Cover Smoke Book</dc:title>
+        <dc:creator>Bill Reader Test</dc:creator>
+        <dc:language>en</dc:language>
+        <meta property="dcterms:modified">2026-09-23T00:00:00Z</meta>
+        <meta name="cover" content="cover-image"/>
+      </metadata>
+      <manifest>
+        <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+        <item id="cover-page" href="cover.xhtml" media-type="application/xhtml+xml"/>
+        <item id="cover-image" href="images/cover.png" media-type="image/png" properties="cover-image"/>
+        <item id="c1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+      </manifest>
+      <spine><itemref idref="cover-page"/><itemref idref="c1"/></spine>
+    </package>`);
+  zip.file('OEBPS/nav.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>TOC</title></head><body><nav epub:type="toc"><ol><li><a href="chapter1.xhtml">Chapter One</a></li></ol></nav></body></html>`);
+  zip.file('OEBPS/cover.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Cover</title></head><body epub:type="frontmatter"><div epub:type="cover"><img data-test-cover="true" src="images/cover.png" alt="Cover image"/></div></body></html>`);
+  zip.file('OEBPS/images/cover.png', coverPng);
+  zip.file('OEBPS/chapter1.xhtml', `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter One</title></head><body><h1>Chapter One</h1><p>Cover resource regression fixture.</p></body></html>`);
+  return zip.generateAsync({ type: 'nodebuffer', mimeType: 'application/epub+zip' });
+}
+
 async function importFixture(page) {
   const buffer = await makeEpub();
   await page.getByTestId('epub-input').setInputFiles({ name: 'smoke-test.epub', mimeType: 'application/epub+zip', buffer });
@@ -64,6 +101,49 @@ test('imports an EPUB, renders it, and persists the library', async ({ page }) =
   await card.locator('.book-open').click();
   await expect(page.locator('#readerView')).toBeVisible();
   await expect(page.frameLocator('#viewer iframe').getByText('First Light')).toBeVisible();
+});
+
+
+test('waits for archived EPUB resources before rendering the cover page', async ({ page }) => {
+  await page.evaluate(() => {
+    const originalEpub = window.ePub;
+    let calls = 0;
+    window.__bbrOpenedResolved = false;
+    window.ePub = (...args) => {
+      const book = originalEpub(...args);
+      calls += 1;
+      if (calls === 2) {
+        const opened = book.opened;
+        book.opened = opened.then((value) => new Promise((resolve) => {
+          setTimeout(() => {
+            window.__bbrOpenedResolved = true;
+            resolve(value);
+          }, 600);
+        }));
+      }
+      return book;
+    };
+  });
+
+  const buffer = await makeCoverEpub();
+  await page.getByTestId('epub-input').setInputFiles({
+    name: 'cover-smoke.epub',
+    mimeType: 'application/epub+zip',
+    buffer
+  });
+
+  await expect(page.locator('#readerView')).toBeVisible();
+  const duringOpen = await page.evaluate(() => ({
+    opened: window.__bbrOpenedResolved,
+    frames: document.querySelectorAll('#viewer iframe').length
+  }));
+  expect(duringOpen.opened).toBe(false);
+  expect(duringOpen.frames).toBe(0);
+
+  await expect.poll(() => page.evaluate(() => window.__bbrOpenedResolved)).toBe(true);
+  const cover = page.frameLocator('#viewer iframe').locator('img[data-test-cover="true"]');
+  await expect(cover).toBeVisible();
+  await expect.poll(() => cover.evaluate((img) => img.complete && img.naturalWidth > 0)).toBe(true);
 });
 
 test('reader controls expose contents, themes, search, and bookmarks', async ({ page }) => {
