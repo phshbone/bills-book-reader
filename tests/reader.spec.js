@@ -141,7 +141,7 @@ test('waits for archived EPUB resources before rendering the cover page', async 
   expect(duringOpen.frames).toBe(0);
 
   await expect.poll(() => page.evaluate(() => window.__bbrOpenedResolved)).toBe(true);
-  const cover = page.frameLocator('#viewer iframe').locator('img[data-test-cover="true"]');
+  const cover = page.locator('#viewer iframe').first().contentFrame().locator('img[data-test-cover="true"]');
   await expect(cover).toBeVisible();
   await expect.poll(() => cover.evaluate((img) => img.complete && img.naturalWidth > 0)).toBe(true);
 });
