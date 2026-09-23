@@ -334,6 +334,10 @@
       }
       currentBook = ePub(data.slice(0));
       await currentBook.ready;
+      // EPUB.js resolves metadata/spine in ready before archived resource
+      // replacements are guaranteed complete. Wait for opened so cover and
+      // inline image URLs are rewritten before the first spine item renders.
+      await currentBook.opened;
       await setupRendition();
       await restoreReadingPosition(currentRecord);
       renderToc(await currentBook.loaded.navigation);
@@ -465,6 +469,15 @@
 
   function secureSerializedBookFrame(output, section) {
     try {
+      // EPUB.js serializer hooks receive the original serialized section rather
+      // than a guaranteed chain of prior hook mutations. Re-apply the library's
+      // resource substitutions here before sanitizing so archived EPUB assets
+      // (cover art, inline images, CSS resources) remain blob/data URLs instead
+      // of falling back to page-relative HTTP requests.
+      if (currentBook?.resources?.substitute) {
+        output = currentBook.resources.substitute(output, section?.url);
+      }
+
       let doc = new DOMParser().parseFromString(output, 'application/xhtml+xml');
       if (doc.querySelector('parsererror')) doc = new DOMParser().parseFromString(output, 'text/html');
 
