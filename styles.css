@@ -139,10 +139,11 @@ body[data-app-theme="paper"] { --shell:#ece9e1; --panel:#ffffff; --paper:#fbfaf6
 @keyframes pageFoldInPrev { from { transform:translateX(-2.2%) rotateY(-5deg); opacity:.84; } to { transform:translateX(0) rotateY(0deg); opacity:1; } }
 @keyframes pageShadowNextOut { from { opacity:0; transform:translateX(52%); } to { opacity:.7; transform:translateX(-6%); } }
 @keyframes pageShadowNextIn { from { opacity:.62; transform:translateX(6%); } to { opacity:0; transform:translateX(-52%); } }
-.page-turn { position:absolute; top:50%; transform:translateY(-50%); z-index:25; width:42px; height:72px; border:1px solid var(--line); background:color-mix(in srgb,var(--panel) 84%,transparent); color:var(--muted); font-size:35px; border-radius:12px; opacity:.32; transition:opacity .15s ease; }
-.page-turn:hover, .page-turn:focus { opacity:1; }
-.page-turn-left { left:8px; }
-.page-turn-right { right:8px; }
+.page-turn { position:absolute; top:0; bottom:0; z-index:25; width:46px; height:auto; border:0; background:transparent; color:var(--muted); font-size:35px; border-radius:0; opacity:.20; transition:opacity .15s ease, background .15s ease; display:flex; align-items:center; justify-content:center; }
+.page-turn:hover, .page-turn:focus-visible { opacity:.92; background:color-mix(in srgb,var(--panel) 18%,transparent); outline:0; }
+.page-turn-left { left:0; }
+.page-turn-right { right:0; }
+.reader-stage[data-flow="scrolled-doc"] .page-turn { display:none; }
 .reader-footer { z-index:55; padding:8px 10px calc(8px + var(--safe-bottom)); border-top:1px solid #30443e; background:#40584f; color:#f8f7f1; }
 .reader-footer .reader-actions { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; width:100%; }
 .reader-footer .icon-button { width:100%; min-width:0; height:44px; background:rgba(255,255,255,.10); border-color:rgba(255,255,255,.24); color:#fff; border-radius:13px; }
@@ -224,9 +225,7 @@ body[data-app-theme="paper"] { --shell:#ece9e1; --panel:#ffffff; --paper:#fbfaf6
   .reader-footer .icon-button { height:42px; font-size:19px; line-height:1; }
   #appearanceButton { font-size:15px; }
   .reader-footer .marks-button { font-size:11px; }
-  .page-turn { width:34px; height:58px; opacity:.18; }
-  .page-turn-left { left:3px; }
-  .page-turn-right { right:3px; }
+  .page-turn { width:44px; opacity:.16; }
   .progress-line { grid-template-columns:34px 1fr 45px; gap:6px; }
 }
 
