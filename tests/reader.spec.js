@@ -315,6 +315,33 @@ test('text selection remains available inside the sanitized EPUB frame', async (
   expect(selected).toContain('copper lantern');
 });
 
+test('reader status title and progress span the phone width symmetrically', async ({ page }) => {
+  await importFixture(page);
+  const geometry = await page.evaluate(() => {
+    const topbar = document.querySelector('#readerTopbar').getBoundingClientRect();
+    const status = document.querySelector('.reader-status-main').getBoundingClientRect();
+    const title = document.querySelector('.reader-title-wrap').getBoundingClientRect();
+    const progress = document.querySelector('.progress-line').getBoundingClientRect();
+    return {
+      topbarWidth: topbar.width,
+      statusWidth: status.width,
+      progressWidth: progress.width,
+      titleCenter: title.left + title.width / 2,
+      topbarCenter: topbar.left + topbar.width / 2,
+      statusLeftGap: status.left - topbar.left,
+      statusRightGap: topbar.right - status.right,
+      progressLeftGap: progress.left - topbar.left,
+      progressRightGap: topbar.right - progress.right
+    };
+  });
+
+  expect(geometry.statusWidth).toBeGreaterThan(geometry.topbarWidth * 0.9);
+  expect(geometry.progressWidth).toBeGreaterThan(geometry.topbarWidth * 0.9);
+  expect(Math.abs(geometry.titleCenter - geometry.topbarCenter)).toBeLessThanOrEqual(2);
+  expect(Math.abs(geometry.statusLeftGap - geometry.statusRightGap)).toBeLessThanOrEqual(2);
+  expect(Math.abs(geometry.progressLeftGap - geometry.progressRightGap)).toBeLessThanOrEqual(2);
+});
+
 test('page turn controls are full-height edge tap zones in paginated mode', async ({ page }) => {
   await importFixture(page);
   const geometry = await page.evaluate(() => {
