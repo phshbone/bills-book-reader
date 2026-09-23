@@ -307,6 +307,38 @@ test('text selection remains available inside the sanitized EPUB frame', async (
   expect(selected).toContain('copper lantern');
 });
 
+test('page turn controls are full-height edge tap zones in paginated mode', async ({ page }) => {
+  await importFixture(page);
+  const geometry = await page.evaluate(() => {
+    const stage = document.querySelector('#readerStage').getBoundingClientRect();
+    const prev = document.querySelector('#prevPage').getBoundingClientRect();
+    const next = document.querySelector('#nextPage').getBoundingClientRect();
+    return {
+      stageHeight: stage.height,
+      prevHeight: prev.height,
+      nextHeight: next.height,
+      prevWidth: prev.width,
+      nextWidth: next.width,
+      prevTopGap: Math.abs(prev.top - stage.top),
+      nextTopGap: Math.abs(next.top - stage.top)
+    };
+  });
+  expect(Math.abs(geometry.stageHeight - geometry.prevHeight)).toBeLessThanOrEqual(2);
+  expect(Math.abs(geometry.stageHeight - geometry.nextHeight)).toBeLessThanOrEqual(2);
+  expect(geometry.prevWidth).toBeGreaterThanOrEqual(40);
+  expect(geometry.nextWidth).toBeGreaterThanOrEqual(40);
+  expect(geometry.prevWidth).toBeLessThanOrEqual(56);
+  expect(geometry.nextWidth).toBeLessThanOrEqual(56);
+  expect(geometry.prevTopGap).toBeLessThanOrEqual(1);
+  expect(geometry.nextTopGap).toBeLessThanOrEqual(1);
+
+  await page.getByRole('button', { name: 'Reading appearance' }).click();
+  await page.locator('#flowSelect').selectOption('scrolled-doc');
+  await expect(page.locator('#readerStage')).toHaveAttribute('data-flow', 'scrolled-doc');
+  await expect(page.getByRole('button', { name: 'Previous page' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Next page' })).toBeHidden();
+});
+
 test('paginated mode locks content to one viewport and serializes page turns', async ({ page }) => {
   await importFixture(page);
   await expect(page.locator('#locationText')).toHaveText(/\d+ \/ \d+/);
