@@ -164,9 +164,15 @@ test('external source links are prepared to leave the EPUB frame', async ({ page
   await expect.poll(() => page.evaluate(() => window.__bbrOpenedSource)).toBe('https://example.org/source-record');
 });
 
-test('reader header uses the dark green visual anchor', async ({ page }) => {
+test('reader status stays at top while the action toolbar carries the green visual anchor', async ({ page }) => {
   await importFixture(page);
-  await expect(page.locator('#readerTopbar')).toHaveCSS('background-color', 'rgb(64, 88, 79)');
+  await expect(page.locator('#readerTopbar')).not.toHaveCSS('background-color', 'rgb(64, 88, 79)');
+  await expect(page.locator('#readerFooter')).toHaveCSS('background-color', 'rgb(64, 88, 79)');
+
+  const order = await page.locator('#readerFooter .reader-actions > button').evaluateAll((buttons) =>
+    buttons.map((button) => button.id)
+  );
+  expect(order).toEqual(['searchButton', 'appearanceButton', 'tocButton', 'bookmarkButton', 'marksButton']);
 });
 
 test('reading preferences persist across reloads', async ({ page }) => {
