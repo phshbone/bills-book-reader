@@ -151,7 +151,15 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
 
   await page.getByRole('button', { name: 'Table of contents' }).click();
   await expect(page.getByRole('button', { name: 'Second Chapter' })).toBeVisible();
-  await page.getByRole('button', { name: 'Close contents' }).click();
+  const contentsClose = page.getByRole('button', { name: 'Close contents' });
+  await expect(contentsClose).toHaveText('Done');
+  const contentsCloseGeometry = await contentsClose.evaluate((button) => {
+    const buttonRect = button.getBoundingClientRect();
+    const panelRect = button.closest('#tocPanel').getBoundingClientRect();
+    return { buttonBottom: buttonRect.bottom, panelBottom: panelRect.bottom };
+  });
+  expect(Math.abs(contentsCloseGeometry.panelBottom - contentsCloseGeometry.buttonBottom)).toBeLessThan(110);
+  await contentsClose.click();
 
   await page.getByRole('button', { name: 'Reading appearance' }).click();
   await page.getByRole('button', { name: /Night/ }).click();
@@ -168,7 +176,8 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await expect(page.locator('#readerMarginValue')).toHaveText('6');
   await page.locator('#readerBrightness').fill('70');
   await expect(page.locator('#readerBrightnessValue')).toHaveText('70%');
-  await expect(page.locator('#viewer')).toHaveCSS('filter', 'brightness(0.7)');
+  await expect(page.locator('#readerView')).toHaveCSS('--reader-dim-opacity', '0.3');
+  await expect(page.locator('#viewer')).toHaveCSS('filter', 'none');
   const appearanceClose = page.getByRole('button', { name: 'Close appearance' });
   await expect(appearanceClose).toHaveText('Done');
   const closeGeometry = await appearanceClose.evaluate((button) => {
@@ -199,6 +208,15 @@ test('reader controls expose contents, themes, search, and bookmarks', async ({ 
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(page.locator('#searchStatus')).toContainText('result');
   await expect(page.locator('#searchResults')).toContainText('copper lantern');
+  const searchClose = page.getByRole('button', { name: 'Close search' });
+  await expect(searchClose).toHaveText('Done');
+  const searchCloseGeometry = await searchClose.evaluate((button) => {
+    const buttonRect = button.getBoundingClientRect();
+    const panelRect = button.closest('#searchPanel').getBoundingClientRect();
+    return { buttonBottom: buttonRect.bottom, panelBottom: panelRect.bottom };
+  });
+  expect(Math.abs(searchCloseGeometry.panelBottom - searchCloseGeometry.buttonBottom)).toBeLessThan(110);
+  await searchClose.click();
 });
 
 
@@ -454,6 +472,10 @@ test('page turn controls are full-height edge tap zones in paginated mode', asyn
   expect(geometry.nextWidth).toBeLessThanOrEqual(56);
   expect(geometry.prevTopGap).toBeLessThanOrEqual(1);
   expect(geometry.nextTopGap).toBeLessThanOrEqual(1);
+
+  const nextZone = page.getByRole('button', { name: 'Next page' });
+  await nextZone.hover();
+  await expect(nextZone).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
   await page.getByRole('button', { name: 'Reading appearance' }).click();
   await page.locator('#flowSelect').selectOption('scrolled-doc');
