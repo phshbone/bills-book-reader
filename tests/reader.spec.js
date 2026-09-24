@@ -91,6 +91,13 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
 });
 
+test('installed iPhone shell requests a black translucent status bar', async ({ page }) => {
+  const capable = await page.locator('meta[name="apple-mobile-web-app-capable"]').getAttribute('content');
+  const statusStyle = await page.locator('meta[name="apple-mobile-web-app-status-bar-style"]').getAttribute('content');
+  expect(capable).toBe('yes');
+  expect(statusStyle).toBe('black-translucent');
+});
+
 test('imports an EPUB, renders it, and persists the library', async ({ page }) => {
   await importFixture(page);
   await page.getByRole('button', { name: 'Back to library' }).click();
