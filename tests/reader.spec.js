@@ -276,7 +276,7 @@ test('scroll mode continues naturally into the next chapter', async ({ page }) =
   }
 
   await expect.poll(async () => page.locator('#viewer iframe').count()).toBeGreaterThan(1);
-  await expect(page.locator('#viewer iframe').last().contentFrame().getByText('Second Chapter')).toBeVisible();
+  await expect(page.locator('#viewer iframe').last().contentFrame().getByRole('heading', { name: 'Second Chapter', exact: true })).toBeVisible();
   await expect(page.locator('#readerChapterTitle')).toHaveText('Second Chapter');
 });
 
