@@ -258,6 +258,27 @@ test('switching between page and scroll modes keeps the exact reading area', asy
   await expect(page.frameLocator('#viewer iframe').locator(`[data-test-paragraph="${visibleParagraph}"]`)).toBeVisible();
 });
 
+test('scroll mode continues naturally into the next chapter', async ({ page }) => {
+  await importFixture(page);
+  await page.getByRole('button', { name: 'Reading appearance' }).click();
+  await page.locator('#flowSelect').selectOption('scrolled-doc');
+  await page.getByRole('button', { name: 'Close appearance' }).click();
+
+  const scroller = page.locator('#viewer .epub-container');
+  await expect(scroller).toBeVisible();
+
+  for (let i = 0; i < 6; i++) {
+    await scroller.evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+      node.dispatchEvent(new Event('scroll', { bubbles: true }));
+    });
+    await page.waitForTimeout(150);
+  }
+
+  await expect.poll(async () => page.locator('#viewer iframe').count()).toBeGreaterThan(1);
+  await expect(page.locator('#viewer iframe').last().contentFrame().getByRole('heading', { name: 'Second Chapter', exact: true })).toBeVisible();
+});
+
 test('external source links are prepared to leave the EPUB frame', async ({ page, browserName }) => {
   await importFixture(page);
   await page.getByRole('button', { name: 'Table of contents' }).click();

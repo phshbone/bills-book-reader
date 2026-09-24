@@ -643,7 +643,7 @@
     rendition = currentBook.renderTo(mount, {
       width: '100%',
       height: '100%',
-      manager: settings.flow === 'paginated' ? 'continuous' : 'default',
+      manager: 'continuous',
       spread: 'none',
       flow: settings.flow,
       allowScriptedContent: true,
