@@ -99,15 +99,16 @@
         <aside class="side-panel" id="tocPanel" hidden aria-label="Table of contents">
           <div class="panel-head">
             <div><p class="eyebrow">navigate</p><h2>Contents</h2></div>
-            <button class="icon-button panel-close" type="button" data-close-panel="tocPanel" aria-label="Close contents">×</button>
           </div>
           <nav id="tocList" class="toc-list"></nav>
+          <div class="panel-bottom-actions">
+            <button class="panel-done-button" type="button" data-close-panel="tocPanel" aria-label="Close contents">Done</button>
+          </div>
         </aside>
 
         <aside class="side-panel" id="searchPanel" hidden aria-label="Search in book">
           <div class="panel-head">
             <div><p class="eyebrow">find</p><h2>Search</h2></div>
-            <button class="icon-button panel-close" type="button" data-close-panel="searchPanel" aria-label="Close search">×</button>
           </div>
           <form id="bookSearchForm" class="book-search-form">
             <input id="bookSearchInput" type="search" placeholder="Search this book" required>
@@ -115,6 +116,9 @@
           </form>
           <p class="panel-status" id="searchStatus"></p>
           <div id="searchResults" class="search-results"></div>
+          <div class="panel-bottom-actions">
+            <button class="panel-done-button" type="button" data-close-panel="searchPanel" aria-label="Close search">Done</button>
+          </div>
         </aside>
 
         <aside class="side-panel" id="appearancePanel" hidden aria-label="Reading appearance">
@@ -133,9 +137,9 @@
           </div>
 
           <div class="setting-block range-setting">
-            <label for="readerBrightness"><span>Page brightness</span><output id="readerBrightnessValue">100%</output></label>
-            <input id="readerBrightness" type="range" min="40" max="100" step="5" value="100" aria-label="Page brightness">
-            <p class="setting-help">Dims the book page without changing your phone’s screen brightness.</p>
+            <label for="readerBrightness"><span>Reader brightness</span><output id="readerBrightnessValue">100%</output></label>
+            <input id="readerBrightness" type="range" min="40" max="100" step="5" value="100" aria-label="Reader brightness">
+            <p class="setting-help">Dims the entire reader without changing your phone’s screen brightness.</p>
           </div>
 
           <div class="setting-block">
