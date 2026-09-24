@@ -824,7 +824,8 @@
     settings.brightness = brightness;
     els.readerBrightness.value = String(brightness);
     els.readerBrightnessValue.textContent = `${brightness}%`;
-    els.viewer.style.filter = `brightness(${brightness}%)`;
+    els.viewer.style.removeProperty('filter');
+    els.readerView.style.setProperty('--reader-dim-opacity', String((100 - brightness) / 100));
     els.flowSelect.value = settings.flow;
     els.readerStage.dataset.flow = settings.flow;
     document.querySelectorAll('.theme-chip').forEach((button) => button.classList.toggle('active', button.dataset.theme === settings.theme));
