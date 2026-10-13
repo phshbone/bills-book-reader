@@ -9,6 +9,17 @@
   const SWIPE_MAX_MS = 1000;
   const SWIPE_AXIS_RATIO = 0.8;
   const FRAME_GESTURE_TYPE = 'bbr-epub-swipe';
+  const TOUCH_WEBKIT_TEXT_SIZING = (() => {
+    try {
+      const ua = navigator.userAgent || '';
+      const iosDevice = /iPad|iPhone|iPod/i.test(ua);
+      const iPadDesktopUa = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+      return iosDevice || iPadDesktopUa;
+    } catch {
+      return false;
+    }
+  })();
+
   const FRAME_GESTURE_TOKEN = (() => {
     const bytes = new Uint8Array(16);
     if (globalThis.crypto?.getRandomValues) crypto.getRandomValues(bytes);
@@ -402,6 +413,27 @@
     }
   }
 
+  function applyTypographyToContents(contents) {
+    const doc = contents?.document;
+    if (!doc?.documentElement || !doc.body) return;
+    const scale = Math.max(80, Math.min(160, Number(settings.fontSize) || 100));
+    const textAdjust = TOUCH_WEBKIT_TEXT_SIZING ? `${scale}%` : '100%';
+
+    let style = doc.getElementById('bbr-reader-typography');
+    if (!style) {
+      style = doc.createElement('style');
+      style.id = 'bbr-reader-typography';
+      (doc.head || doc.documentElement).appendChild(style);
+    }
+
+    style.textContent = TOUCH_WEBKIT_TEXT_SIZING
+      ? `html,body{-webkit-text-size-adjust:${textAdjust}!important;text-size-adjust:${textAdjust}!important;}`
+      : `html,body{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important;}body{font-size:${scale}%!important;}`;
+
+    doc.documentElement.dataset.bbrTextScale = String(scale);
+    doc.documentElement.dataset.bbrTextSizing = TOUCH_WEBKIT_TEXT_SIZING ? 'webkit-adjust' : 'body-important';
+  }
+
   function installContentLinkHandling(contents) {
     const doc = contents?.document;
     if (!doc?.documentElement) return;
@@ -661,6 +693,7 @@
       installContentPagingGuards(view?.contents);
       installContentLinkHandling(view?.contents);
       applyThemeToContents(view?.contents);
+      applyTypographyToContents(view?.contents);
       recoverEscapedBookNavigation(view);
       const navItem = findNavForHref(section?.href);
       if (navItem) els.readerChapterTitle.textContent = navItem.label.trim();
@@ -832,12 +865,15 @@
     if (rendition) {
       rendition.themes.select(settings.theme);
       rendition.themes.font(settings.fontFamily);
-      rendition.themes.fontSize(`${settings.fontSize}%`);
+      if (!TOUCH_WEBKIT_TEXT_SIZING) rendition.themes.override('font-size', `${settings.fontSize}%`, true);
       rendition.themes.override('line-height', String(settings.lineHeight), true);
       rendition.themes.override('padding-left', '0px', true);
       rendition.themes.override('padding-right', '0px', true);
       configureReaderMount();
-      for (const contents of rendition.getContents?.() || []) applyThemeToContents(contents);
+      for (const contents of rendition.getContents?.() || []) {
+        applyThemeToContents(contents);
+        applyTypographyToContents(contents);
+      }
     }
     if (persist) saveSettings();
   }

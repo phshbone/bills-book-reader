@@ -191,7 +191,7 @@ body[data-app-theme="paper"] { --shell:#ece9e1; --panel:#ffffff; --paper:#fbfaf6
 .stepper-setting { display:flex; align-items:center; justify-content:space-between; gap:14px; }
 .stepper-control { display:grid; grid-template-columns:48px minmax(64px,auto) 48px; align-items:center; gap:10px; }
 .stepper-control output { min-width:64px; text-align:center; font-weight:800; font-variant-numeric:tabular-nums; }
-.step-button { width:48px; height:44px; border:1px solid var(--line); border-radius:14px; background:var(--paper); color:var(--ink); font:inherit; font-size:25px; font-weight:800; line-height:1; box-shadow:0 1px 0 rgba(0,0,0,.04); }
+.step-button { width:48px; height:44px; border:1px solid var(--line); border-radius:14px; background:var(--paper); color:var(--ink); font:inherit; font-size:25px; font-weight:800; line-height:1; box-shadow:0 1px 0 rgba(0,0,0,.04); touch-action:manipulation; -webkit-user-select:none; user-select:none; }
 .step-button:active { transform:translateY(1px); background:var(--panel); }
 .theme-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .theme-chip { border-radius:12px; padding:8px; display:flex; align-items:center; gap:8px; justify-content:flex-start; background:var(--paper); }

@@ -317,6 +317,42 @@ test('reader status stays at top while the action toolbar carries the green visu
   expect(order).toEqual(['searchButton', 'appearanceButton', 'tocButton', 'bookmarkButton', 'marksButton']);
 });
 
+test('text-size steppers stay app-controlled on mobile and force EPUB typography', async ({ page }) => {
+  await importFixture(page);
+  await page.getByRole('button', { name: 'Reading appearance' }).click();
+
+  const increase = page.getByRole('button', { name: 'Increase text size' });
+  await expect(increase).toHaveCSS('touch-action', 'manipulation');
+  await increase.click();
+  await increase.click();
+  await expect(page.locator('#fontSizeValue')).toHaveText('110%');
+
+  const sizing = await page.locator('#viewer iframe').first().contentFrame().locator('html').evaluate((html) => {
+    const doc = html.ownerDocument;
+    const style = doc.getElementById('bbr-reader-typography');
+    const computed = doc.defaultView.getComputedStyle(html);
+    return {
+      scale: html.dataset.bbrTextScale,
+      mode: html.dataset.bbrTextSizing,
+      stylesheet: style?.textContent || '',
+      computedAdjust: computed.webkitTextSizeAdjust || computed.getPropertyValue('-webkit-text-size-adjust') || computed.getPropertyValue('text-size-adjust') || ''
+    };
+  });
+
+  expect(sizing.scale).toBe('110');
+  expect(sizing.stylesheet).toContain('text-size-adjust:');
+  if (sizing.mode === 'webkit-adjust') {
+    expect(sizing.stylesheet).toContain('-webkit-text-size-adjust:110%!important');
+    expect(sizing.stylesheet).not.toContain('body{font-size:110%!important');
+  } else {
+    expect(sizing.stylesheet).toContain('body{font-size:110%!important');
+  }
+  if (sizing.computedAdjust) {
+    if (sizing.mode === 'webkit-adjust') expect(sizing.computedAdjust).toContain('110');
+    else expect(sizing.computedAdjust).toContain('100');
+  }
+});
+
 test('reading preferences persist across reloads', async ({ page }) => {
   await importFixture(page);
   await page.getByRole('button', { name: 'Reading appearance' }).click();
