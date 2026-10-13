@@ -419,17 +419,19 @@
     const scale = Math.max(80, Math.min(160, Number(settings.fontSize) || 100));
     const textAdjust = TOUCH_WEBKIT_TEXT_SIZING ? `${scale}%` : '100%';
 
-    for (const node of [doc.documentElement, doc.body]) {
-      node.style.setProperty('-webkit-text-size-adjust', textAdjust, 'important');
-      node.style.setProperty('text-size-adjust', textAdjust, 'important');
+    let style = doc.getElementById('bbr-reader-typography');
+    if (!style) {
+      style = doc.createElement('style');
+      style.id = 'bbr-reader-typography';
+      (doc.head || doc.documentElement).appendChild(style);
     }
+
+    style.textContent = TOUCH_WEBKIT_TEXT_SIZING
+      ? `html,body{-webkit-text-size-adjust:${textAdjust}!important;text-size-adjust:${textAdjust}!important;}`
+      : `html,body{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important;}body{font-size:${scale}%!important;}`;
 
     doc.documentElement.dataset.bbrTextScale = String(scale);
     doc.documentElement.dataset.bbrTextSizing = TOUCH_WEBKIT_TEXT_SIZING ? 'webkit-adjust' : 'body-important';
-
-    if (!TOUCH_WEBKIT_TEXT_SIZING) {
-      doc.body.style.setProperty('font-size', `${scale}%`, 'important');
-    }
   }
 
   function installContentLinkHandling(contents) {
