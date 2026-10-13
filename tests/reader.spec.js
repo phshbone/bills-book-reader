@@ -347,7 +347,10 @@ test('text-size steppers stay app-controlled on mobile and force EPUB typography
   } else {
     expect(sizing.stylesheet).toContain('body{font-size:110%!important');
   }
-  if (sizing.computedAdjust) expect(sizing.computedAdjust).toContain('110');
+  if (sizing.computedAdjust) {
+    if (sizing.mode === 'webkit-adjust') expect(sizing.computedAdjust).toContain('110');
+    else expect(sizing.computedAdjust).toContain('100');
+  }
 });
 
 test('reading preferences persist across reloads', async ({ page }) => {
