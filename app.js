@@ -11,7 +11,10 @@
   const FRAME_GESTURE_TYPE = 'bbr-epub-swipe';
   const TOUCH_WEBKIT_TEXT_SIZING = (() => {
     try {
-      return navigator.maxTouchPoints > 0 && globalThis.CSS?.supports?.('-webkit-touch-callout', 'none');
+      const ua = navigator.userAgent || '';
+      const iosDevice = /iPad|iPhone|iPod/i.test(ua);
+      const iPadDesktopUa = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+      return iosDevice || iPadDesktopUa;
     } catch {
       return false;
     }
