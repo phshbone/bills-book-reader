@@ -1,4 +1,4 @@
-const CACHE = 'bills-book-reader-v15';
+const CACHE = 'bills-book-reader-v16';
 const SHELL = [
   './', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icons/book.svg',
   './vendor/jszip.min.js', './vendor/epub.min.js'
