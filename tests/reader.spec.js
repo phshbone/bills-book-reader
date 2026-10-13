@@ -317,6 +317,41 @@ test('reader status stays at top while the action toolbar carries the green visu
   expect(order).toEqual(['searchButton', 'appearanceButton', 'tocButton', 'bookmarkButton', 'marksButton']);
 });
 
+test('text-size steppers stay app-controlled on mobile and force EPUB typography', async ({ page }) => {
+  await importFixture(page);
+  await page.getByRole('button', { name: 'Reading appearance' }).click();
+
+  const increase = page.getByRole('button', { name: 'Increase text size' });
+  await expect(increase).toHaveCSS('touch-action', 'manipulation');
+  await increase.click();
+  await increase.click();
+  await expect(page.locator('#fontSizeValue')).toHaveText('110%');
+
+  const sizing = await page.locator('#viewer iframe').first().contentFrame().locator('html').evaluate((html) => {
+    const body = html.ownerDocument.body;
+    return {
+      scale: html.dataset.bbrTextScale,
+      mode: html.dataset.bbrTextSizing,
+      webkitAdjust: html.style.getPropertyValue('-webkit-text-size-adjust'),
+      textAdjust: html.style.getPropertyValue('text-size-adjust'),
+      bodyFontSize: body.style.getPropertyValue('font-size'),
+      bodyFontPriority: body.style.getPropertyPriority('font-size')
+    };
+  });
+
+  expect(sizing.scale).toBe('110');
+  if (sizing.mode === 'webkit-adjust') {
+    expect(sizing.webkitAdjust).toBe('110%');
+    expect(sizing.textAdjust).toBe('110%');
+    expect(sizing.bodyFontSize).toBe('');
+  } else {
+    expect(sizing.webkitAdjust).toBe('100%');
+    expect(sizing.textAdjust).toBe('100%');
+    expect(sizing.bodyFontSize).toBe('110%');
+    expect(sizing.bodyFontPriority).toBe('important');
+  }
+});
+
 test('reading preferences persist across reloads', async ({ page }) => {
   await importFixture(page);
   await page.getByRole('button', { name: 'Reading appearance' }).click();
