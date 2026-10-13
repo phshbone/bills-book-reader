@@ -9,6 +9,14 @@
   const SWIPE_MAX_MS = 1000;
   const SWIPE_AXIS_RATIO = 0.8;
   const FRAME_GESTURE_TYPE = 'bbr-epub-swipe';
+  const TOUCH_WEBKIT_TEXT_SIZING = (() => {
+    try {
+      return navigator.maxTouchPoints > 0 && globalThis.CSS?.supports?.('-webkit-touch-callout', 'none');
+    } catch {
+      return false;
+    }
+  })();
+
   const FRAME_GESTURE_TOKEN = (() => {
     const bytes = new Uint8Array(16);
     if (globalThis.crypto?.getRandomValues) crypto.getRandomValues(bytes);
@@ -402,6 +410,27 @@
     }
   }
 
+  function applyTypographyToContents(contents) {
+    const doc = contents?.document;
+    if (!doc?.documentElement || !doc.body) return;
+    const scale = Math.max(80, Math.min(160, Number(settings.fontSize) || 100));
+    const textAdjust = TOUCH_WEBKIT_TEXT_SIZING ? `${scale}%` : '100%';
+
+    for (const node of [doc.documentElement, doc.body]) {
+      node.style.setProperty('-webkit-text-size-adjust', textAdjust, 'important');
+      node.style.setProperty('text-size-adjust', textAdjust, 'important');
+    }
+
+    doc.documentElement.dataset.bbrTextScale = String(scale);
+    doc.documentElement.dataset.bbrTextSizing = TOUCH_WEBKIT_TEXT_SIZING ? 'webkit-adjust' : 'body-important';
+
+    if (TOUCH_WEBKIT_TEXT_SIZING) {
+      doc.body.style.removeProperty('font-size');
+    } else {
+      doc.body.style.setProperty('font-size', `${scale}%`, 'important');
+    }
+  }
+
   function installContentLinkHandling(contents) {
     const doc = contents?.document;
     if (!doc?.documentElement) return;
@@ -661,6 +690,7 @@
       installContentPagingGuards(view?.contents);
       installContentLinkHandling(view?.contents);
       applyThemeToContents(view?.contents);
+      applyTypographyToContents(view?.contents);
       recoverEscapedBookNavigation(view);
       const navItem = findNavForHref(section?.href);
       if (navItem) els.readerChapterTitle.textContent = navItem.label.trim();
@@ -832,12 +862,16 @@
     if (rendition) {
       rendition.themes.select(settings.theme);
       rendition.themes.font(settings.fontFamily);
-      rendition.themes.fontSize(`${settings.fontSize}%`);
+      if (TOUCH_WEBKIT_TEXT_SIZING) rendition.themes.removeOverride('font-size');
+      else rendition.themes.override('font-size', `${settings.fontSize}%`, true);
       rendition.themes.override('line-height', String(settings.lineHeight), true);
       rendition.themes.override('padding-left', '0px', true);
       rendition.themes.override('padding-right', '0px', true);
       configureReaderMount();
-      for (const contents of rendition.getContents?.() || []) applyThemeToContents(contents);
+      for (const contents of rendition.getContents?.() || []) {
+        applyThemeToContents(contents);
+        applyTypographyToContents(contents);
+      }
     }
     if (persist) saveSettings();
   }
