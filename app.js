@@ -424,9 +424,7 @@
     doc.documentElement.dataset.bbrTextScale = String(scale);
     doc.documentElement.dataset.bbrTextSizing = TOUCH_WEBKIT_TEXT_SIZING ? 'webkit-adjust' : 'body-important';
 
-    if (TOUCH_WEBKIT_TEXT_SIZING) {
-      doc.body.style.removeProperty('font-size');
-    } else {
+    if (!TOUCH_WEBKIT_TEXT_SIZING) {
       doc.body.style.setProperty('font-size', `${scale}%`, 'important');
     }
   }
@@ -862,8 +860,7 @@
     if (rendition) {
       rendition.themes.select(settings.theme);
       rendition.themes.font(settings.fontFamily);
-      if (TOUCH_WEBKIT_TEXT_SIZING) rendition.themes.removeOverride('font-size');
-      else rendition.themes.override('font-size', `${settings.fontSize}%`, true);
+      if (!TOUCH_WEBKIT_TEXT_SIZING) rendition.themes.override('font-size', `${settings.fontSize}%`, true);
       rendition.themes.override('line-height', String(settings.lineHeight), true);
       rendition.themes.override('padding-left', '0px', true);
       rendition.themes.override('padding-right', '0px', true);
